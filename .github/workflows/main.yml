@@ -33,11 +33,15 @@ jobs:
       - name: Run speed test
         run: python3 scrape_and_speedtest.py
 
-      # 6. 提交结果
+      # 6. 提交结果（仅当 result.csv 存在时）
       - name: Commit and push
         run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-          git add result.csv
-          git commit -m "Update speed test results"
-          git push
+          if [ -f result.csv ]; then
+            git add result.csv
+            git commit -m "Update speed test results"
+            git push
+          else
+            echo "result.csv not found, skipping commit"
+          fi
