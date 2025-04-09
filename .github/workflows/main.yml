@@ -38,14 +38,32 @@ jobs:
       - name: Make iptest executable
         run: chmod +x iptest
 
-      # 6. 运行脚本
+      # 6. 调试工作目录
+      - name: Debug working directory
+        run: |
+          pwd
+          ls -la
+
+      # 7. 运行脚本
       - name: Run speed test
         run: |
           echo "Start time: $(date)"
           python3 scrape_and_speedtest.py
           echo "End time: $(date)"
 
-      # 7. 提交结果
+      # 8. 调试生成的文件
+      - name: Debug generated files
+        run: |
+          echo "Current directory: $(pwd)"
+          ls -la
+          if [ -f result.csv ]; then
+            echo "result.csv exists, content:"
+            cat result.csv
+          else
+            echo "result.csv does not exist"
+          fi
+
+      # 9. 提交结果
       - name: Commit and push
         run: |
           echo "Start time: $(date)"
