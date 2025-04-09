@@ -21,27 +21,45 @@ jobs:
         with:
           python-version: '3.9'
 
-      # 3. 安装 Python 依赖
+      # 3. 缓存 Python 依赖
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # 4. 安装 Python 依赖
       - name: Install Python dependencies
         run: pip install requests
 
-      # 4. 确保 iptest 可执行
+      # 5. 确保 iptest 可执行
       - name: Make iptest executable
         run: chmod +x iptest
 
-      # 5. 运行脚本
+      # 6. 运行脚本
       - name: Run speed test
-        run: python3 scrape_and_speedtest.py
+        run: |
+          echo "Start time: $(date)"
+          python3 scrape_and_speedtest.py
+          echo "End time: $(date)"
 
-      # 6. 提交结果（仅当 result.csv 存在时）
+      # 7. 提交结果
       - name: Commit and push
         run: |
+          echo "Start time: $(date)"
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
           if [ -f result.csv ]; then
             git add result.csv
-            git commit -m "Update speed test results"
-            git push
+            if git diff --staged --quiet; then
+              echo "No changes in result.csv, skipping commit"
+            else
+              git commit -m "Update speed test results"
+              git push
+            fi
           else
             echo "result.csv not found, skipping commit"
           fi
+          echo "End time: $(date)"
