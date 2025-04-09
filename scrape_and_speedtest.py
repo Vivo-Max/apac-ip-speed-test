@@ -8,7 +8,7 @@ from typing import List, Tuple
 # 配置
 URL = "https://bihai.cf/CFIP/CUCC/standard.csv"  # 如果有 URL，替换为实际地址；否则需手动提供 CSV 内容
 IP_LIST_FILE = "ip.txt"
-SPEEDTEST_TOOL = "./iptest"  # 使用 iptest 二进制
+SPEEDTEST_TOOL = "./iptest"  # 使用存储库中的 iptest 二进制
 FINAL_CSV = "result.csv"
 
 # 亚太区国家代码（不包括 AU 和 NZ）
@@ -73,14 +73,15 @@ def run_speed_test(ip_file: str) -> str:
             "-outfile", FINAL_CSV,
             "-speedtest", "10",  # 10 个线程
             "-url", "https://speed.cloudflare.com/__down?bytes=1000000",  # 1MB 文件
-            "-min-speed", "1"  # 筛选速度 ≥ 1 MB/s
+            "-speedlimit", "1"  # 最低下载速度 1 MB/s
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             print(f"测速完成，结果保存到 {FINAL_CSV}")
+            return FINAL_CSV
         else:
             print(f"测速失败: {result.stderr}")
-        return FINAL_CSV
+            return None
     except Exception as e:
         print(f"运行测速失败: {e}")
         return None
