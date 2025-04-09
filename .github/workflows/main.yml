@@ -34,9 +34,11 @@ jobs:
       - name: Install Python dependencies
         run: pip install requests
 
-      # 5. 确保 iptest 可执行
-      - name: Make iptest executable
-        run: chmod +x iptest
+      # 5. 确保 iptest 和 iptest.sh 可执行
+      - name: Make iptest and iptest.sh executable
+        run: |
+          chmod +x iptest
+          chmod +x iptest.sh
 
       # 6. 调试工作目录
       - name: Debug working directory
@@ -47,7 +49,7 @@ jobs:
       # 7. 测试测速 URL
       - name: Test speed test URL
         run: |
-          curl -I "https://speed.cloudflare.com/__down?bytes=500000"
+          curl -I "https://speed.cloudflare.com/__down?bytes=500000000"
 
       # 8. 运行脚本
       - name: Run speed test
@@ -61,11 +63,11 @@ jobs:
         run: |
           echo "Current directory: $(pwd)"
           ls -la
-          if [ -f result.csv ]; then
-            echo "result.csv exists, content:"
-            cat result.csv
+          if [ -f ip.csv ]; then
+            echo "ip.csv exists, content:"
+            cat ip.csv
           else
-            echo "result.csv does not exist"
+            echo "ip.csv does not exist"
           fi
 
       # 10. 测试 IP 连通性（示例）
@@ -86,15 +88,15 @@ jobs:
           echo "Start time: $(date)"
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-          if [ -f result.csv ]; then
-            git add result.csv
+          if [ -f ip.csv ]; then
+            git add ip.csv
             if git diff --staged --quiet; then
-              echo "No changes in result.csv, skipping commit"
+              echo "No changes in ip.csv, skipping commit"
             else
               git commit -m "Update speed test results"
               git push
             fi
           else
-            echo "result.csv not found, skipping commit"
+            echo "ip.csv not found, skipping commit"
           fi
           echo "End time: $(date)"
