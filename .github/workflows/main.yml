@@ -44,14 +44,19 @@ jobs:
           pwd
           ls -la
 
-      # 7. 运行脚本
+      # 7. 测试测速 URL
+      - name: Test speed test URL
+        run: |
+          curl -I "https://speed.cloudflare.com/__down?bytes=500000"
+
+      # 8. 运行脚本
       - name: Run speed test
         run: |
           echo "Start time: $(date)"
           python3 scrape_and_speedtest.py
           echo "End time: $(date)"
 
-      # 8. 调试生成的文件
+      # 9. 调试生成的文件
       - name: Debug generated files
         run: |
           echo "Current directory: $(pwd)"
@@ -63,7 +68,19 @@ jobs:
             echo "result.csv does not exist"
           fi
 
-      # 9. 提交结果
+      # 10. 测试 IP 连通性（示例）
+      - name: Test IP connectivity
+        run: |
+          if [ -f ip.txt ]; then
+            head -n 5 ip.txt | while read ip port; do
+              echo "Testing $ip:$port"
+              nc -zv -w 5 $ip $port || echo "Connection to $ip:$port failed"
+            done
+          else
+            echo "ip.txt not found"
+          fi
+
+      # 11. 提交结果
       - name: Commit and push
         run: |
           echo "Start time: $(date)"
