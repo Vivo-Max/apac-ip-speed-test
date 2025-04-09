@@ -1,0 +1,47 @@
+name: IP Speed Test
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  speed-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      # 1. 检出代码
+      - uses: actions/checkout@v4
+
+      # 2. 设置 Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      # 3. 安装 Python 依赖
+      - name: Install Python dependencies
+        run: pip install requests
+
+      # 4. 下载 iptest 二进制
+      - name: Download iptest binary
+        run: |
+          wget https://github.com/bh-qt/Cloudflare-IP-SpeedTest/releases/download/v1.0.2/iptest-v1.0.2-linux-amd64.tar.gz
+          tar -xzf iptest-v1.0.2-linux-amd64.tar.gz
+          mv iptest-v1.0.2-linux-amd64/iptest .
+          chmod +x iptest
+
+      # 5. 运行脚本
+      - name: Run speed test
+        run: python3 scrape_and_speedtest.py
+
+      # 6. 提交结果
+      - name: Commit and push
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add result.csv
+          git commit -m "Update speed test results"
+          git push
