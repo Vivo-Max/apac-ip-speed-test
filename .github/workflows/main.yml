@@ -30,7 +30,8 @@ jobs:
         run: |
           wget https://github.com/bh-qt/Cloudflare-IP-SpeedTest/releases/download/v1.0.2/iptest-v1.0.2-linux-amd64.tar.gz
           tar -xzf iptest-v1.0.2-linux-amd64.tar.gz
-          mv iptest-v1.0.2-linux-amd64/iptest .
+          ls -R  # 调试用，确认文件结构
+          find . -type f -executable -name "iptest*" -exec mv {} iptest \;  # 动态查找并重命名
           chmod +x iptest
 
       # 5. 运行脚本
