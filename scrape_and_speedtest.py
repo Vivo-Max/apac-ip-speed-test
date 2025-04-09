@@ -6,6 +6,7 @@ import os
 import logging
 from io import StringIO
 from typing import List, Tuple
+from collections import defaultdict
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 # 配置
 URL = "https://bihai.cf/CFIP/CUCC/standard.csv"  # 如果有 URL，替换为实际地址；否则需手动提供 CSV 内容
 IP_LIST_FILE = "ip.txt"
+IPS_FILE = "ips.txt"  # 新增输出文件
 SPEEDTEST_SCRIPT = "./iptest.sh"  # 调用 iptest.sh 脚本
 FINAL_CSV = "ip.csv"  # iptest.sh 默认输出文件
 HEADERS = {
@@ -39,6 +41,27 @@ COUNTRY_MAPPING = {
     '越南': 'VN', '印度': 'IN', '澳门': 'MO', '文莱': 'BN',
     '柬埔寨': 'KH', '老挝': 'LA', '缅甸': 'MM', '东帝汶': 'TL',
     '美国': 'US'
+}
+
+# 国家代码到 emoji 和中文名称的映射
+COUNTRY_LABELS = {
+    'JP': ('🇯🇵', '日本'),
+    'KR': ('🇰🇷', '韩国'),
+    'SG': ('🇸🇬', '新加坡'),
+    'TW': ('🇹🇼', '台湾'),
+    'HK': ('🇭🇰', '香港'),
+    'MY': ('🇲🇾', '马来西亚'),
+    'TH': ('🇹🇭', '泰国'),
+    'ID': ('🇮🇩', '印度尼西亚'),
+    'PH': ('🇵🇭', '菲律宾'),
+    'VN': ('🇻🇳', '越南'),
+    'IN': ('🇮🇳', '印度'),
+    'MO': ('🇲🇴', '澳门'),
+    'BN': ('🇧🇳', '文莱'),
+    'KH': ('🇰🇭', '柬埔寨'),
+    'LA': ('🇱🇦', '老挝'),
+    'MM': ('🇲🇲', '缅甸'),
+    'TL': ('🇹🇱', '东帝汶')
 }
 
 def fetch_content(url: str) -> str:
@@ -199,6 +222,50 @@ def filter_speed_and_deduplicate(csv_file: str):
         writer.writerows(final_rows)
     logger.info(f"去重完成，{csv_file} 包含 {len(final_rows)} 条记录")
 
+def generate_ips_file(csv_file: str, ip_ports: List[Tuple[str, str, str]]):
+    """从 ip.csv 读取 IP 和端口，添加国家标签并写入 ips.txt"""
+    if not os.path.exists(csv_file):
+        logger.info(f"{csv_file} 不存在，跳过生成 {IPS_FILE}")
+        return
+
+    # 创建 IP:Port 到国家的映射
+    ip_port_to_country = {(ip, port): country for ip, port, country in ip_ports}
+
+    # 读取 ip.csv，获取测速后的 IP 和端口
+    final_nodes = []
+    with open(csv_file, "r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        next(reader)  # 跳过表头
+        for row in reader:
+            if len(row) < 3:  # 确保行有足够列（IP、端口、速度）
+                continue
+            ip, port = row[0], row[1]
+            key = (ip, port)
+            if key in ip_port_to_country:
+                country = ip_port_to_country[key]
+                final_nodes.append((ip, port, country))
+            else:
+                logger.debug(f"未找到 {ip}:{port} 的国家标签，跳过")
+
+    if not final_nodes:
+        logger.info(f"没有符合条件的节点，跳过生成 {IPS_FILE}")
+        return
+
+    # 统计每个国家的出现次数，为重复国家添加序号
+    country_count = defaultdict(int)
+    labeled_nodes = []
+    for ip, port, country in final_nodes:
+        country_count[country] += 1
+        emoji, name = COUNTRY_LABELS.get(country, ('🌐', country))
+        label = f"{emoji}{name}-{country_count[country]}"
+        labeled_nodes.append((ip, port, label))
+
+    # 写入 ips.txt
+    with open(IPS_FILE, "w", encoding="utf-8") as f:
+        for ip, port, label in labeled_nodes:
+            f.write(f"{ip}:{port}#{label}\n")
+    logger.info(f"生成 {IPS_FILE}，包含 {len(labeled_nodes)} 个节点")
+
 def main():
     # 如果有 URL，直接抓取；否则需手动提供 CSV 内容
     content = fetch_content(URL)
@@ -229,8 +296,11 @@ def main():
     if csv_file:
         # 去重
         filter_speed_and_deduplicate(csv_file)
-        if not os.path.exists(csv_file):
-            logger.info("无符合条件的节点")
+        if os.path.exists(csv_file):
+            # 生成 ips.txt
+            generate_ips_file(csv_file, ip_ports)
+        else:
+            logger.info("无符合条件的节点，跳过生成 ips.txt")
     else:
         logger.info("无测速结果")
 
