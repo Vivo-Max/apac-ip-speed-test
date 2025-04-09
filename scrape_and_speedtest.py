@@ -73,8 +73,7 @@ def run_speed_test(ip_file: str) -> str:
             "-file", ip_file,
             "-outfile", FINAL_CSV,
             "-speedtest", "5",
-            "-url", "https://speed.cloudflare.com/__down?bytes=500000"  # 500KB 文件
-            # 移除 -speedlimit 参数
+            "-url", "https://speed.cloudflare.com/__down?bytes=500000"  # 修复：添加空格
         ]
         print(f"运行测速命令: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -153,6 +152,10 @@ def main():
 
     # 写入 ip.txt
     ip_file = write_ip_list(ip_ports)
+
+    # 打印 ip.txt 内容
+    with open(ip_file, "r", encoding="utf-8") as f:
+        print(f"ip.txt 内容:\n{f.read()}")
 
     # 一次性测速
     csv_file = run_speed_test(ip_file)
