@@ -71,8 +71,8 @@ def run_speed_test(ip_file: str) -> str:
             SPEEDTEST_TOOL,
             "-file", ip_file,
             "-outfile", FINAL_CSV,
-            "-speedtest", "10",  # 10 个线程
-            "-url", "https://speed.cloudflare.com/__down?bytes=1000000",  # 1MB 文件
+            "-speedtest", "5",  # 减少到 5 个线程
+            "-url", "https://speed.cloudflare.com/__down?bytes=500000",  # 500KB 文件
             "-speedlimit", "1"  # 最低下载速度 1 MB/s
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
