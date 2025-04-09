@@ -25,14 +25,9 @@ jobs:
       - name: Install Python dependencies
         run: pip install requests
 
-      # 4. 下载 iptest 二进制
-      - name: Download iptest binary
-        run: |
-          wget https://github.com/bh-qt/Cloudflare-IP-SpeedTest/releases/download/v1.0.2/iptest-v1.0.2-linux-amd64.tar.gz
-          tar -xzf iptest-v1.0.2-linux-amd64.tar.gz
-          ls -R  # 调试用，确认文件结构
-          find . -type f -executable -name "iptest*" -exec mv {} iptest \;  # 动态查找并重命名
-          chmod +x iptest
+      # 4. 确保 iptest 可执行
+      - name: Make iptest executable
+        run: chmod +x iptest
 
       # 5. 运行脚本
       - name: Run speed test
