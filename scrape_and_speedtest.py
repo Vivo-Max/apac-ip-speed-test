@@ -145,4 +145,24 @@ def main():
             exit(1)
 
     # 提取亚太区节点
-    ip_po
+    ip_ports = extract_ip_ports(content)
+    if not ip_ports:
+        print("未找到符合条件的亚太区节点")
+        exit(1)
+    print(f"提取到 {len(ip_ports)} 个亚太区节点")
+
+    # 写入 ip.txt
+    ip_file = write_ip_list(ip_ports)
+
+    # 一次性测速
+    csv_file = run_speed_test(ip_file)
+    if csv_file:
+        # 过滤速度并去重
+        filter_speed_and_deduplicate(csv_file, MIN_SPEED_MBPS)
+        if not os.path.exists(csv_file):
+            print("无符合速度条件的节点")
+    else:
+        print("无测速结果")
+
+if __name__ == "__main__":
+    main()
