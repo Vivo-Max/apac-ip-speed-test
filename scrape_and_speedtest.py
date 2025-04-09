@@ -71,14 +71,21 @@ def run_speed_test(ip_file: str) -> str:
             SPEEDTEST_TOOL,
             "-file", ip_file,
             "-outfile", FINAL_CSV,
-            "-speedtest", "5",  # 减少到 5 个线程
+            "-speedtest", "5",
             "-url", "https://speed.cloudflare.com/__down?bytes=500000",  # 500KB 文件
-            "-speedlimit", "1"  # 最低下载速度 1 MB/s
+            "-speedlimit", "0.1"  # 降低到 0.1 MB/s
         ]
+        print(f"运行测速命令: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
+        print(f"iptest stdout: {result.stdout}")
+        print(f"iptest stderr: {result.stderr}")
         if result.returncode == 0:
-            print(f"测速完成，结果保存到 {FINAL_CSV}")
-            return FINAL_CSV
+            if os.path.exists(FINAL_CSV):
+                print(f"测速完成，结果保存到 {FINAL_CSV}")
+                return FINAL_CSV
+            else:
+                print(f"测速完成，但 {FINAL_CSV} 未生成，可能是没有符合条件的节点")
+                return None
         else:
             print(f"测速失败: {result.stderr}")
             return None
@@ -89,6 +96,7 @@ def run_speed_test(ip_file: str) -> str:
 def deduplicate_csv(csv_file: str):
     """去重 CSV 文件"""
     if not os.path.exists(csv_file):
+        print(f"{csv_file} 不存在，跳过去重")
         return
     seen = set()
     final_rows = []
