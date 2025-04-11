@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 配置
-URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"  
+URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"
 IP_LIST_FILE = "ip.txt"
 IPS_FILE = "ips.txt"
 SPEEDTEST_SCRIPT = "./iptest.sh"
@@ -299,7 +299,7 @@ def run_speed_test() -> str:
                 if stream_name == "stdout":
                     print(line.strip())
                     # 假设每行输出表示一个 IP 的测速结果
-                    if line.strip() and not line.startswith("Progress:"):  # 排除非结果行
+                    if line.strip() and not line.startswith("Progress:"):
                         completed_ips += 1
                         print(f"\r测速进度: 已完成 {completed_ips}/{total_ips} ({completed_ips/total_ips*100:.2f}%)", end='')
                 lines.append(line)
