@@ -40,10 +40,10 @@ jobs:
             exit 1
           fi
 
-      # 确保 speedtest-tool 和 iptest.sh 可执行
+      # 确保 iptest 和 iptest.sh 可执行
       - name: Make files executable
         run: |
-          chmod +x tools/speedtest-tool
+          chmod +x iptest
           chmod +x iptest.sh
 
       # 运行脚本
