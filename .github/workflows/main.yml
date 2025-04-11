@@ -26,6 +26,7 @@ jobs:
           cd Cloudflare-IP-SpeedTest
           go build -o ipspeedtest main.go
           mv ipspeedtest ../
+          cd ..
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -47,7 +48,7 @@ jobs:
         run: |
           # 更换为阿里云镜像源（可选，视网络情况选择）
           sudo sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
-          sudo sed -i 's|http://security.Ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
+          sudo sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
 
           # 清理软件源
           sudo apt-get clean
@@ -71,17 +72,48 @@ jobs:
       - name: Create iptest.sh
         run: |
           echo '#!/bin/bash' > iptest.sh
-          echo './ipspeedtest -file=ip.txt -tls=true -speedtest=10 -speedlimit=5 -url="speed.cloudflare.com/__down?bytes=50000000" -max=200 -outfile="ip.csv"' >> iptest.sh
+          echo "./ipspeedtest -file=$(pwd)/ip.txt -tls=true -speedtest=10 -speedlimit=5 -url=\"speed.cloudflare.com/__down?bytes=50000000\" -max=200 -outfile=\"$(pwd)/ip.csv\"" >> iptest.sh
           chmod +x iptest.sh
 
-      - name: Debug working directory
+      - name: Debug input.csv and ip.txt
         run: |
-          pwd
-          ls -la
+          echo "Current directory: $(pwd)"
+          if [ -f input.csv ]; then
+            echo "input.csv exists, content (first 5 lines):"
+            head -n 5 input.csv
+          else
+            echo "input.csv does not exist"
+          fi
+          if [ -f ip.txt ]; then
+            echo "ip.txt exists, content (first 5 lines):"
+            head -n 5 ip.txt
+          else
+            echo "ip.txt does not exist"
+          fi
 
       - name: Test speed test URL
         run: |
           curl -I "https://speed.cloudflare.com/__down?bytes=50000000"
+
+      - name: Debug iptest.sh execution
+        run: |
+          echo "Current directory: $(pwd)"
+          if [ -f ip.txt ]; then
+            echo "ip.txt exists, content (first 5 lines):"
+            head -n 5 ip.txt
+          else
+            echo "ip.txt does not exist, iptest.sh will likely fail"
+          fi
+          echo "Running iptest.sh directly for debugging..."
+          ./iptest.sh > iptest.log 2>&1 || true
+          echo "iptest.sh output:"
+          cat iptest.log
+          if [ -f ip.csv ]; then
+            echo "ip.csv exists after running iptest.sh, content:"
+            cat ip.csv
+          else
+            echo "ip.csv does not exist after running iptest.sh"
+          fi
 
       - name: Run speed test
         run: |
@@ -93,9 +125,12 @@ jobs:
         run: |
           echo "Current directory: $(pwd)"
           ls -la
+          find /home/runner/work -name ip.csv 2>/dev/null || echo "ip.csv not found in any directory"
           if [ -f ip.csv ]; then
             echo "ip.csv exists, content:"
             cat ip.csv
+            echo "ip.csv permissions:"
+            ls -l ip.csv
           else
             echo "ip.csv does not exist"
           fi
@@ -115,7 +150,7 @@ jobs:
             git add ip.csv
           fi
           if [ -f ips.txt ]; then
-           git add ips.txt
+            git add ips.txt
           fi
           if [ -f ip_country_cache.json ]; then
             git add ip_country_cache.json
