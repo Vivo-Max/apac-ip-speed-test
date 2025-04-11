@@ -5,9 +5,7 @@ import subprocess
 import os
 import logging
 import sys
-import threading
-import time
-import json
+from io import StringIO
 from typing import List, Tuple
 from collections import defaultdict
 from requests.adapters import HTTPAdapter
@@ -64,7 +62,7 @@ COUNTRY_LABELS = {
     'MX': ('🇲🇽', '墨西哥'), 'VE': ('🇻🇪', '委内瑞拉'), 'SE': ('🇸🇪', '瑞典'),
     'NO': ('🇳🇴', '挪威'), 'DK': ('🇩🇰', '丹麦'), 'CH': ('🇨🇭', '瑞士'),
     'AT': ('🇦🇹', '奥地利'), 'BE': ('🇧🇪', '比利时'), 'IE': ('🇮🇪', '爱尔兰'),
-    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇧🇬', '保加利亚'),
+    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇬🇷', '保加利亚'),
     'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
     'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
     'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
@@ -76,11 +74,97 @@ COUNTRY_LABELS = {
     'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
 }
 
-def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int]]:
-    """从 URL 获取并提取 IPv4 和 IPv6 地址及端口，去重"""
-    server_port_pairs = []
-    invalid_lines = []
+def is_ip(s: str) -> bool:
+    """验证 IP 地址格式"""
+    return bool(re.match(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$", s))
 
+def is_port(s: str) -> bool:
+    """验证端口号"""
+    try:
+        port = int(s)
+        return 1 <= port <= 65535
+    except ValueError:
+        return False
+
+def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, str, str]]:
+    """从本地文件提取 IPv4 地址、端口和国家代码，只保留指定国家"""
+    if not os.path.exists(file_path):
+        logger.error(f"文件 {file_path} 不存在")
+        return []
+
+    # 读取文件内容为二进制，检测编码
+    with open(file_path, "rb") as f:
+        raw_data = f.read()
+    result = detect(raw_data)
+    encoding = result.get("encoding", "utf-8")
+    logger.info(f"检测到文件 {file_path} 的编码: {encoding}")
+
+    # 以检测到的编码解码
+    try:
+        content = raw_data.decode(encoding)
+    except UnicodeDecodeError as e:
+        logger.error(f"无法以 {encoding} 解码文件 {file_path}: {e}")
+        return []
+
+    logger.info(f"从本地文件 {file_path} 读取内容 (长度: {len(content)} 字节)")
+
+    # 统一换行符
+    content = content.replace('\r\n', '\n').replace('\r', '\n')
+
+    # 尝试不同的分隔符解析 CSV
+    f = StringIO(content)
+    delimiters = [',', '\t', ';']
+    for delimiter in delimiters:
+        f.seek(0)
+        reader = csv.reader(f, delimiter=delimiter)
+        rows = list(reader)
+        if len(rows) > 1 and len(rows[0]) > 1:
+            break
+    else:
+        logger.error("无法确定 CSV 分隔符")
+        return []
+
+    header = rows[0]
+    data_rows = rows[1:]
+    logger.info(f"CSV 字段数: {len(header)}, 示例行: {data_rows[0] if data_rows else '无数据'}")
+
+    # 假设字段位置（根据 input.csv 结构调整）
+    ip_col = 0      # IP 地址
+    port_col = 1    # 端口
+    country_col = 2 # 国家代码 (TW, JP 等)
+
+    logger.info(f"字段位置 - IP: {ip_col}, Port: {port_col}, Country: {country_col}")
+
+    ip_ports = []
+    for row in data_rows:
+        if len(row) <= max(ip_col, port_col, country_col or -1):
+            continue
+        try:
+            ip = row[ip_col].strip()
+            if not is_ip(ip):
+                logger.debug(f"无效 IP: {ip}")
+                continue
+
+            port = row[port_col].strip()
+            if not is_port(port):
+                port = "443"  # 默认使用 443 端口
+            port = str(int(port))
+
+            country = row[country_col].strip().upper()
+            if country not in DESIRED_COUNTRIES:
+                continue
+
+            ip_ports.append((ip, port, country))
+
+        except (ValueError, IndexError) as e:
+            logger.debug(f"跳过无效行: {row} - {e}")
+            continue
+
+    logger.info(f"提取到 {len(ip_ports)} 个符合条件的节点")
+    return ip_ports
+
+def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, str, str]]:
+    """从 URL 获取并提取 IPv4 地址、端口和国家代码，只保留指定国家"""
     try:
         session = requests.Session()
         retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
@@ -95,184 +179,81 @@ def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int]]:
         logger.error(f"获取内容失败: {e}")
         return []
 
+    # 检测编码
     result = detect(raw_content)
     encoding = result.get("encoding", "utf-8")
     logger.info(f"检测到 URL 内容的编码: {encoding}")
 
+    # 以检测到的编码解码
     try:
         content = raw_content.decode(encoding)
     except UnicodeDecodeError as e:
         logger.error(f"无法以 {encoding} 解码 URL 内容: {e}")
         return []
 
+    # 统一换行符
     content = content.replace('\r\n', '\n').replace('\r', '\n')
-    lines = content.splitlines()
 
-    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[: ,;\t](\d{1,5})')
-
-    comma_count = sum(1 for line in lines[:5] if ',' in line and line.strip())
-    semicolon_count = sum(1 for line in lines[:5] if ';' in line and line.strip())
-    tab_count = sum(1 for line in lines[:5] if '\t' in line and line.strip())
-    space_count = sum(1 for line in lines[:5] if ' ' in line and line.strip())
-    colon_count = sum(1 for line in lines[:5] if ':' in line and line.strip())
-
-    delimiter = None
-    if comma_count > max(semicolon_count, tab_count, space_count, colon_count) and comma_count > 0:
-        delimiter = ','
-    elif semicolon_count > max(comma_count, tab_count, space_count, colon_count) and semicolon_count > 0:
-        delimiter = ';'
-    elif tab_count > max(comma_count, semicolon_count, space_count, colon_count) and tab_count > 0:
-        delimiter = '\t'
-    elif space_count > max(comma_count, semicolon_count, tab_count, colon_count) and space_count > 0:
-        delimiter = ' '
-    elif colon_count > max(comma_count, semicolon_count, tab_count, space_count) and colon_count > 0:
-        delimiter = ':'
-    logger.info(f"检测到的分隔符: {delimiter if delimiter else '未检测到，使用正则匹配'}")
-
-    for i, line in enumerate(lines):
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-
-        match = ip_port_pattern.match(line)
-        if match:
-            server = match.group(1).strip('[]')
-            port = int(match.group(4))
-            if 0 <= port <= 65535:
-                server_port_pairs.append((server, port))
-                logger.debug(f"从正则解析到: {server}:{port}")
-            else:
-                invalid_lines.append(f"Line {i}: {line} (Invalid port range)")
-            continue
-
-        if delimiter:
-            fields = line.split(delimiter)
-            if len(fields) >= 2:
-                server = fields[0].strip('[]')
-                try:
-                    port = int(fields[1].strip())
-                    if 0 <= port <= 65535 and (re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', server) or re.match(r'^(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$', server)):
-                        server_port_pairs.append((server, port))
-                        logger.debug(f"从分隔符解析到: {server}:{port}")
-                    else:
-                        invalid_lines.append(f"Line {i}: {line} (Invalid port range or IP format)")
-                except (ValueError, TypeError):
-                    invalid_lines.append(f"Line {i}: {line} (Invalid port format)")
-            else:
-                invalid_lines.append(f"Line {i}: {line} (Too few fields)")
-        else:
-            invalid_lines.append(f"Line {i}: {line} (No valid format detected)")
-
-    unique_server_port_pairs = list(dict.fromkeys(server_port_pairs))
-    logger.info(f"去重后共 {len(unique_server_port_pairs)} 个 server:port 对")
-    logger.info(f"解析出的前 5 个 server:port 对: {unique_server_port_pairs[:5]}")
-
-    if invalid_lines:
-        logger.info(f"发现 {len(invalid_lines)} 个无效条目: {invalid_lines[:5]}")
-
-    return unique_server_port_pairs
-
-def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int]]:
-    """从本地文件提取 IPv4 和 IPv6 地址及端口，支持任意格式，去重"""
-    server_port_pairs = []
-    invalid_lines = []
-
-    if not os.path.exists(file_path):
-        logger.error(f"文件 {file_path} 不存在")
+    # 尝试不同的分隔符解析 CSV
+    f = StringIO(content)
+    delimiters = [',', '\t', ';']
+    for delimiter in delimiters:
+        f.seek(0)
+        reader = csv.reader(f, delimiter=delimiter)
+        rows = list(reader)
+        if len(rows) > 1 and len(rows[0]) > 1:
+            break
+    else:
+        logger.error("无法确定 CSV 分隔符")
         return []
 
-    with open(file_path, "rb") as f:
-        raw_data = f.read()
-    result = detect(raw_data)
-    encoding = result.get("encoding", "utf-8")
-    logger.info(f"检测到文件 {file_path} 的编码: {encoding}")
+    header = rows[0]
+    data_rows = rows[1:]
+    logger.info(f"CSV 字段数: {len(header)}, 示例行: {data_rows[0] if data_rows else '无数据'}")
 
-    try:
-        content = raw_data.decode(encoding)
-    except UnicodeDecodeError as e:
-        logger.error(f"无法以 {encoding} 解码文件 {file_path}: {e}")
-        return []
+    # 假设字段位置（根据 URL 返回的 CSV 结构调整）
+    ip_col = 0      # IP 地址
+    port_col = 1    # 端口
+    country_col = 2 # 国家代码 (TW, JP 等)
 
-    logger.info(f"从本地文件 {file_path} 读取内容 (长度: {len(content)} 字节)")
+    logger.info(f"字段位置 - IP: {ip_col}, Port: {port_col}, Country: {country_col}")
 
-    content = content.replace('\r\n', '\n').replace('\r', '\n')
-    lines = content.splitlines()
+    ip_ports = []
+    for row in data_rows:
+        if len(row) <= max(ip_col, port_col, country_col or -1):
+            continue
+        try:
+            ip = row[ip_col].strip()
+            if not is_ip(ip):
+                logger.debug(f"无效 IP: {ip}")
+                continue
 
-    logger.info(f"{file_path} 总行数: {len(lines)}")
-    logger.info(f"{file_path} 前 5 行内容: {lines[:5]}")
+            port = row[port_col].strip()
+            if not is_port(port):
+                port = "443"  # 默认使用 443 端口
+            port = str(int(port))
 
-    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[: ,;\t](\d{1,5})')
+            country = row[country_col].strip().upper()
+            if country not in DESIRED_COUNTRIES:
+                continue
 
-    comma_count = sum(1 for line in lines[:5] if ',' in line and line.strip())
-    semicolon_count = sum(1 for line in lines[:5] if ';' in line and line.strip())
-    tab_count = sum(1 for line in lines[:5] if '\t' in line and line.strip())
-    space_count = sum(1 for line in lines[:5] if ' ' in line and line.strip())
-    colon_count = sum(1 for line in lines[:5] if ':' in line and line.strip())
+            ip_ports.append((ip, port, country))
 
-    delimiter = None
-    if comma_count > max(semicolon_count, tab_count, space_count, colon_count) and comma_count > 0:
-        delimiter = ','
-    elif semicolon_count > max(comma_count, tab_count, space_count, colon_count) and semicolon_count > 0:
-        delimiter = ';'
-    elif tab_count > max(comma_count, semicolon_count, space_count, colon_count) and tab_count > 0:
-        delimiter = '\t'
-    elif space_count > max(comma_count, semicolon_count, tab_count, colon_count) and space_count > 0:
-        delimiter = ' '
-    elif colon_count > max(comma_count, semicolon_count, tab_count, space_count) and colon_count > 0:
-        delimiter = ':'
-    logger.info(f"检测到的分隔符: {delimiter if delimiter else '未检测到，使用正则匹配'}")
-
-    for i, line in enumerate(lines):
-        line = line.strip()
-        if not line or line.startswith('#'):
+        except (ValueError, IndexError) as e:
+            logger.debug(f"跳过无效行: {row} - {e}")
             continue
 
-        match = ip_port_pattern.match(line)
-        if match:
-            server = match.group(1).strip('[]')
-            port = int(match.group(4))
-            if 0 <= port <= 65535:
-                server_port_pairs.append((server, port))
-                logger.debug(f"从正则解析到: {server}:{port}")
-            else:
-                invalid_lines.append(f"Line {i}: {line} (Invalid port range)")
-            continue
+    logger.info(f"提取到 {len(ip_ports)} 个符合条件的节点")
+    return ip_ports
 
-        if delimiter:
-            fields = line.split(delimiter)
-            if len(fields) >= 2:
-                server = fields[0].strip('[]')
-                try:
-                    port = int(fields[1].strip())
-                    if 0 <= port <= 65535 and (re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', server) or re.match(r'^(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$', server)):
-                        server_port_pairs.append((server, port))
-                        logger.debug(f"从分隔符解析到: {server}:{port}")
-                    else:
-                        invalid_lines.append(f"Line {i}: {line} (Invalid port range or IP format)")
-                except (ValueError, TypeError):
-                    invalid_lines.append(f"Line {i}: {line} (Invalid port format)")
-            else:
-                invalid_lines.append(f"Line {i}: {line} (Too few fields)")
-        else:
-            invalid_lines.append(f"Line {i}: {line} (No valid format detected)")
-
-    unique_server_port_pairs = list(dict.fromkeys(server_port_pairs))
-    logger.info(f"去重后共 {len(unique_server_port_pairs)} 个 server:port 对")
-    logger.info(f"解析出的前 5 个 server:port 对: {unique_server_port_pairs[:5]}")
-
-    if invalid_lines:
-        logger.info(f"发现 {len(invalid_lines)} 个无效条目: {invalid_lines[:5]}")
-
-    return unique_server_port_pairs
-
-def write_ip_list(ip_ports: List[Tuple[str, int]]) -> str:
+def write_ip_list(ip_ports: List[Tuple[str, str, str]]) -> str:
     """写入 ip.txt，格式为 'ip port'"""
     if not ip_ports:
         logger.error(f"无有效节点，无法生成 {IP_LIST_FILE}")
         return None
     try:
         with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
-            for ip, port in ip_ports:
+            for ip, port, _ in ip_ports:
                 f.write(f"{ip} {port}\n")
         logger.info(f"生成 {IP_LIST_FILE}，包含 {len(ip_ports)} 个节点")
         if os.path.exists(IP_LIST_FILE):
@@ -285,10 +266,13 @@ def write_ip_list(ip_ports: List[Tuple[str, int]]) -> str:
         return None
 
 def run_speed_test() -> str:
+    """运行测速脚本"""
     try:
+        # 检查 ip.txt 是否存在
         if not os.path.exists(IP_LIST_FILE):
             logger.error(f"{IP_LIST_FILE} 不存在，无法运行测速")
             return None
+
         with open(IP_LIST_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
             ip_count = len(lines)
@@ -300,53 +284,22 @@ def run_speed_test() -> str:
 
         cmd = [SPEEDTEST_SCRIPT]
         logger.info(f"运行测速命令: {' '.join(cmd)}")
-        
-        process = subprocess.Popen(
+
+        result = subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             shell=True,
             encoding='utf-8',
             errors='replace'
         )
 
-        stdout_lines = []
-        stderr_lines = []
+        logger.info(f"iptest.sh stdout: {result.stdout}")
+        if result.stderr:
+            logger.info(f"iptest.sh stderr: {result.stderr}")
 
-        total_ips = ip_count
-        completed_ips = 0
-
-        def read_stream(stream, lines, stream_name):
-            nonlocal completed_ips
-            while True:
-                line = stream.readline()
-                if not line:
-                    break
-                if stream_name == "stdout":
-                    print(line.strip())
-                    if "下载速度" in line:
-                        completed_ips += 1
-                        print(f"\r测速进度: 已完成 {completed_ips}/{total_ips} ({completed_ips/total_ips*100:.2f}%)", end='')
-                lines.append(line)
-
-        stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines, "stdout"))
-        stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines, "stderr"))
-        stdout_thread.start()
-        stderr_thread.start()
-
-        stdout_thread.join()
-        stderr_thread.join()
-
-        return_code = process.wait()
-
-        stdout = ''.join(stdout_lines)
-        stderr = ''.join(stderr_lines)
-        if stderr:
-            logger.info(f"iptest.sh stderr: {stderr}")
-
-        if return_code != 0:
-            logger.error(f"iptest.sh 运行失败，返回码: {return_code}")
+        if result.returncode != 0:
+            logger.error(f"iptest.sh 运行失败，返回码: {result.returncode}")
             return None
 
         if os.path.exists(FINAL_CSV):
@@ -376,7 +329,7 @@ def filter_speed_and_deduplicate(csv_file: str):
             logger.error(f"{csv_file} 为空，跳过去重")
             return
         for row in reader:
-            if len(row) < 2:
+            if len(row) < 3:  # 确保行有足够列（IP、端口、速度）
                 continue
             key = (row[0], row[1])
             if key not in seen:
@@ -384,7 +337,8 @@ def filter_speed_and_deduplicate(csv_file: str):
                 final_rows.append(row)
 
     if not final_rows:
-        logger.info(f"没有符合条件的节点，但保留 {csv_file} 以供调试")
+        logger.info(f"没有符合条件的节点，删除 {csv_file}")
+        os.remove(csv_file)
         return
 
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
@@ -392,61 +346,17 @@ def filter_speed_and_deduplicate(csv_file: str):
         writer.writerow(header)
         writer.writerows(final_rows)
     logger.info(f"去重完成，{csv_file} 包含 {len(final_rows)} 条记录")
-    if os.path.exists(csv_file):
-        logger.info(f"确认 {csv_file} 已保存，文件大小: {os.path.getsize(csv_file)} 字节")
-    else:
-        logger.error(f"错误：{csv_file} 未保存")
 
-def load_ip_country_cache() -> dict:
-    """加载 IP 国家缓存"""
-    cache_file = "ip_country_cache.json"
-    if os.path.exists(cache_file):
-        with open(cache_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_ip_country_cache(cache: dict):
-    """保存 IP 国家缓存"""
-    cache_file = "ip_country_cache.json"
-    with open(cache_file, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
-
-def get_country_from_ip(ip: str, cache: dict) -> str:
-    """通过 IP 查询国家代码，带缓存和重试"""
-    if ip in cache:
-        return cache[ip]
-    for attempt in range(3):
-        try:
-            time.sleep(1.5)
-            response = requests.get(f"http://ip-api.com/json/{ip}", timeout=5)
-            response.raise_for_status()
-            data = response.json()
-            country_code = data.get('countryCode', '')
-            if country_code:
-                cache[ip] = country_code
-                logger.debug(f"IP {ip} 国家代码: {country_code}")
-                return country_code
-            else:
-                logger.warning(f"IP {ip} 无国家代码")
-                return ''
-        except Exception as e:
-            logger.error(f"查询 IP {ip} 国家失败 (尝试 {attempt + 1}/3): {e}")
-            if attempt == 2:
-                return ''
-            time.sleep(2)
-    return ''
-
-def generate_ips_file(csv_file: str):
-    """读取 ip.csv，查询国家并写入 ips.txt，仅保留指定国家"""
+def generate_ips_file(csv_file: str, ip_ports: List[Tuple[str, str, str]]):
+    """从 ip.csv 读取 IP 和端口，添加国家标签并写入 ips.txt"""
     if not os.path.exists(csv_file):
         logger.info(f"{csv_file} 不存在，跳过生成 {IPS_FILE}")
         return
 
-    with open(csv_file, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-        logger.info(f"ip.csv 前 5 行内容: {lines[:5]}")
+    # 创建 IP:Port 到国家的映射
+    ip_port_to_country = {(ip, port): country for ip, port, country in ip_ports}
 
-    country_cache = load_ip_country_cache()
+    # 读取 ip.csv，获取测速后的 IP 和端口
     final_nodes = []
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
@@ -457,34 +367,30 @@ def generate_ips_file(csv_file: str):
             logger.error(f"ip.csv 为空，跳过生成 {IPS_FILE}")
             return
         for row in reader:
-            if len(row) < 2:
-                logger.debug(f"无效行: {row}")
+            if len(row) < 3:  # 确保行有足够列（IP、端口、速度）
                 continue
             ip, port = row[0], row[1]
-            if not (re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip) or re.match(r'^(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$', ip)) or not (0 <= int(port) <= 65535):
-                logger.debug(f"无效 IP 或端口: {ip}:{port}")
-                continue
-            country = get_country_from_ip(ip, country_cache)
-            logger.debug(f"IP {ip} 国家: {country}")
-            if country in DESIRED_COUNTRIES:
-                final_nodes.append((ip, int(port), country))
+            key = (ip, port)
+            if key in ip_port_to_country:
+                country = ip_port_to_country[key]
+                final_nodes.append((ip, port, country))
             else:
-                logger.debug(f"过滤掉 {ip}:{port}，国家 {country} 不在 {DESIRED_COUNTRIES}")
-
-    save_ip_country_cache(country_cache)
+                logger.debug(f"未找到 {ip}:{port} 的国家标签，跳过")
 
     if not final_nodes:
         logger.info(f"没有符合条件的节点，跳过生成 {IPS_FILE}")
         return
 
+    # 统计每个国家的出现次数，为重复国家添加序号
     country_count = defaultdict(int)
     labeled_nodes = []
     for ip, port, country in final_nodes:
         country_count[country] += 1
-        emoji, name = COUNTRY_LABELS.get(country, ('🌐', '未知'))
+        emoji, name = COUNTRY_LABELS.get(country, ('🌐', country))
         label = f"{emoji}{name}-{country_count[country]}"
         labeled_nodes.append((ip, port, label))
 
+    # 写入 ips.txt
     with open(IPS_FILE, "w", encoding="utf-8") as f:
         for ip, port, label in labeled_nodes:
             f.write(f"{ip}:{port}#{label}\n")
@@ -492,34 +398,35 @@ def generate_ips_file(csv_file: str):
 
 def main(prefer_url: bool = False):
     """主函数"""
+    ip_ports = []
     if not prefer_url and os.path.exists(INPUT_FILE):
+        # 从本地 input.csv 获取 IP 和端口
         ip_ports = extract_ip_ports_from_file(INPUT_FILE)
         if not ip_ports:
             logger.error("未找到符合条件的节点")
             sys.exit(1)
-        ip_file = write_ip_list(ip_ports)
-        if not ip_file:
-            logger.error("无法生成 ip.txt，终止程序")
-            sys.exit(1)
-        with open(ip_file, "r", encoding="utf-8") as f:
-            logger.info(f"ip.txt 内容:\n{f.read()}")
     else:
+        # 从 URL 获取 IP 和端口
         ip_ports = fetch_and_extract_ip_ports_from_url(URL)
         if not ip_ports:
             logger.error("未找到符合条件的节点")
             sys.exit(1)
-        ip_file = write_ip_list(ip_ports)
-        if not ip_file:
-            logger.error("无法生成 ip.txt，终止程序")
-            sys.exit(1)
-        with open(ip_file, "r", encoding="utf-8") as f:
-            logger.info(f"ip.txt 内容:\n{f.read()}")
 
+    # 写入 ip.txt
+    ip_file = write_ip_list(ip_ports)
+    if not ip_file:
+        logger.error("无法生成 ip.txt，终止程序")
+        sys.exit(1)
+
+    with open(ip_file, "r", encoding="utf-8") as f:
+        logger.info(f"ip.txt 内容:\n{f.read()}")
+
+    # 运行测速
     csv_file = run_speed_test()
     if csv_file:
         filter_speed_and_deduplicate(csv_file)
         if os.path.exists(csv_file):
-            generate_ips_file(csv_file)
+            generate_ips_file(csv_file, ip_ports)
         else:
             logger.info("无符合条件的节点，跳过生成 ips.txt")
     else:
