@@ -101,26 +101,6 @@ jobs:
         run: |
           curl -I "https://speed.cloudflare.com/__down?bytes=50000000"
 
-      - name: Debug iptest.sh execution
-        run: |
-          echo "Current directory: $(pwd)"
-          if [ -f ip.txt ]; then
-            echo "ip.txt exists, content (first 5 lines):"
-            head -n 5 ip.txt
-          else
-            echo "ip.txt does not exist, iptest.sh will likely fail"
-          fi
-          echo "Running iptest.sh directly for debugging..."
-          ./iptest.sh > iptest.log 2>&1 || true
-          echo "iptest.sh output:"
-          cat iptest.log
-          if [ -f ip.csv ]; then
-            echo "ip.csv exists after running iptest.sh, content:"
-            cat ip.csv
-          else
-            echo "ip.csv does not exist after running iptest.sh"
-          fi
-
       - name: Run speed test
         run: |
           echo "Start time: $(date)"
