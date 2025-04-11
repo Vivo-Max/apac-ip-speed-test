@@ -108,22 +108,25 @@ def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int]]:
     content = content.replace('\r\n', '\n').replace('\r', '\n')
     lines = content.splitlines()
 
-    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})')
+    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[: ,;\t](\d{1,5})')
 
     comma_count = sum(1 for line in lines[:5] if ',' in line and line.strip())
     semicolon_count = sum(1 for line in lines[:5] if ';' in line and line.strip())
     tab_count = sum(1 for line in lines[:5] if '\t' in line and line.strip())
     space_count = sum(1 for line in lines[:5] if ' ' in line and line.strip())
+    colon_count = sum(1 for line in lines[:5] if ':' in line and line.strip())
 
     delimiter = None
-    if comma_count > max(semicolon_count, tab_count, space_count) and comma_count > 0:
+    if comma_count > max(semicolon_count, tab_count, space_count, colon_count) and comma_count > 0:
         delimiter = ','
-    elif semicolon_count > max(comma_count, tab_count, space_count) and semicolon_count > 0:
+    elif semicolon_count > max(comma_count, tab_count, space_count, colon_count) and semicolon_count > 0:
         delimiter = ';'
-    elif tab_count > max(comma_count, semicolon_count, space_count) and tab_count > 0:
+    elif tab_count > max(comma_count, semicolon_count, space_count, colon_count) and tab_count > 0:
         delimiter = '\t'
-    elif space_count > max(comma_count, semicolon_count, tab_count) and space_count > 0:
+    elif space_count > max(comma_count, semicolon_count, tab_count, colon_count) and space_count > 0:
         delimiter = ' '
+    elif colon_count > max(comma_count, semicolon_count, tab_count, space_count) and colon_count > 0:
+        delimiter = ':'
     logger.info(f"检测到的分隔符: {delimiter if delimiter else '未检测到，使用正则匹配'}")
 
     for i, line in enumerate(lines):
@@ -195,26 +198,28 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int]]:
     content = content.replace('\r\n', '\n').replace('\r', '\n')
     lines = content.splitlines()
 
-    # 调试：打印总行数和前 5 行
     logger.info(f"{file_path} 总行数: {len(lines)}")
     logger.info(f"{file_path} 前 5 行内容: {lines[:5]}")
 
-    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})')
+    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[: ,;\t](\d{1,5})')
 
     comma_count = sum(1 for line in lines[:5] if ',' in line and line.strip())
     semicolon_count = sum(1 for line in lines[:5] if ';' in line and line.strip())
     tab_count = sum(1 for line in lines[:5] if '\t' in line and line.strip())
     space_count = sum(1 for line in lines[:5] if ' ' in line and line.strip())
+    colon_count = sum(1 for line in lines[:5] if ':' in line and line.strip())
 
     delimiter = None
-    if comma_count > max(semicolon_count, tab_count, space_count) and comma_count > 0:
+    if comma_count > max(semicolon_count, tab_count, space_count, colon_count) and comma_count > 0:
         delimiter = ','
-    elif semicolon_count > max(comma_count, tab_count, space_count) and semicolon_count > 0:
+    elif semicolon_count > max(comma_count, tab_count, space_count, colon_count) and semicolon_count > 0:
         delimiter = ';'
-    elif tab_count > max(comma_count, semicolon_count, space_count) and tab_count > 0:
+    elif tab_count > max(comma_count, semicolon_count, space_count, colon_count) and tab_count > 0:
         delimiter = '\t'
-    elif space_count > max(comma_count, semicolon_count, tab_count) and space_count > 0:
+    elif space_count > max(comma_count, semicolon_count, tab_count, colon_count) and space_count > 0:
         delimiter = ' '
+    elif colon_count > max(comma_count, semicolon_count, tab_count, space_count) and colon_count > 0:
+        delimiter = ':'
     logger.info(f"检测到的分隔符: {delimiter if delimiter else '未检测到，使用正则匹配'}")
 
     for i, line in enumerate(lines):
@@ -347,6 +352,8 @@ def run_speed_test() -> str:
 
         if os.path.exists(FINAL_CSV):
             logger.info(f"测速完成，结果保存到 {FINAL_CSV}")
+            with open(FINAL_CSV, "r", encoding="utf-8") as f:
+                logger.info(f"ip.csv 前 5 行内容:\n{''.join(f.readlines()[:5])}")
             return FINAL_CSV
         else:
             logger.error(f"测速完成，但未生成 {FINAL_CSV}")
@@ -492,18 +499,22 @@ def main(prefer_url: bool = False):
             logger.error("未找到符合条件的节点")
             sys.exit(1)
         ip_file = write_ip_list(ip_ports)
-        if ip_file:
-            with open(ip_file, "r", encoding="utf-8") as f:
-                logger.info(f"ip.txt 内容:\n{f.read()}")
+        if not ip_file:
+            logger.error("无法生成 ip.txt，终止程序")
+            sys.exit(1)
+        with open(ip_file, "r", encoding="utf-8") as f:
+            logger.info(f"ip.txt 内容:\n{f.read()}")
     else:
         ip_ports = fetch_and_extract_ip_ports_from_url(URL)
         if not ip_ports:
             logger.error("未找到符合条件的节点")
             sys.exit(1)
         ip_file = write_ip_list(ip_ports)
-        if ip_file:
-            with open(ip_file, "r", encoding="utf-8") as f:
-                logger.info(f"ip.txt 内容:\n{f.read()}")
+        if not ip_file:
+            logger.error("无法生成 ip.txt，终止程序")
+            sys.exit(1)
+        with open(ip_file, "r", encoding="utf-8") as f:
+            logger.info(f"ip.txt 内容:\n{f.read()}")
 
     csv_file = run_speed_test()
     if csv_file:
