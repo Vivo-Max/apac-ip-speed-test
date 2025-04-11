@@ -290,11 +290,13 @@ def run_speed_test() -> str:
             logger.error(f"{IP_LIST_FILE} 不存在，无法运行测速")
             return None
         with open(IP_LIST_FILE, "r", encoding="utf-8") as f:
-            ip_count = len(f.readlines())
+            lines = f.readlines()
+            ip_count = len(lines)
             if ip_count == 0:
                 logger.error(f"{IP_LIST_FILE} 为空，无法运行测速")
                 return None
             logger.info(f"{IP_LIST_FILE} 包含 {ip_count} 个 IP")
+            logger.info(f"{IP_LIST_FILE} 前 5 行内容: {lines[:5]}")
 
         cmd = [SPEEDTEST_SCRIPT]
         logger.info(f"运行测速命令: {' '.join(cmd)}")
@@ -312,10 +314,7 @@ def run_speed_test() -> str:
         stdout_lines = []
         stderr_lines = []
 
-        total_ips = 0
-        with open(IP_LIST_FILE, 'r') as f:
-            total_ips = len(f.readlines())
-
+        total_ips = ip_count
         completed_ips = 0
 
         def read_stream(stream, lines, stream_name):
