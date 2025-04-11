@@ -115,12 +115,15 @@ jobs:
             git add ip.csv
           fi
           if [ -f ips.txt ]; then
-            git add ips.txt
+           git add ips.txt
+          fi
+          if [ -f ip_country_cache.json ]; then
+            git add ip_country_cache.json
           fi
           if git diff --staged --quiet; then
-            echo "No changes in ip.csv or ips.txt, skipping commit"
+            echo "No changes in ip.csv, ips.txt, or ip_country_cache.json, skipping commit"
           else
-            git commit -m "Update speed test results and ips.txt"
+            git commit -m "Update speed test results, ips.txt, and IP country cache"
             git push
           fi
           echo "End time: $(date)"
