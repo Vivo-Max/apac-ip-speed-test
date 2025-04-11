@@ -15,6 +15,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build Cloudflare IP SpeedTest
+        run: |
+          git clone https://github.com/bh-qt/Cloudflare-IP-SpeedTest.git
+          cd Cloudflare-IP-SpeedTest
+          go build -o ipspeedtest main.go
+          mv ipspeedtest ../
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -36,10 +48,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl libcurl4-openssl-dev
 
-      - name: Make iptest and iptest.sh executable
+      - name: Create iptest.sh
         run: |
-          chmod +x iptest || echo "iptest not found"
-          chmod +x iptest.sh || echo "iptest.sh not found"
+          echo '#!/bin/bash' > iptest.sh
+          echo './ipspeedtest -file=ip.txt -tls=true -speedtest=10 -speedlimit=5 -url="speed.cloudflare.com/__down?bytes=50000000" -max=200 -outfile="ip.csv"' >> iptest.sh
+          chmod +x iptest.sh
 
       - name: Debug working directory
         run: |
@@ -48,7 +61,7 @@ jobs:
 
       - name: Test speed test URL
         run: |
-          curl -I "https://speed.cloudflare.com/__down?bytes=1000000"
+          curl -I "https://speed.cloudflare.com/__down?bytes=50000000"
 
       - name: Run speed test
         run: |
