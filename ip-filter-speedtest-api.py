@@ -298,7 +298,8 @@ def run_speed_test() -> str:
                     break
                 if stream_name == "stdout":
                     print(line.strip())
-                    if "已完成" in line:  # 根据实际日志调整
+                    # 假设每行输出表示一个 IP 的测速结果
+                    if line.strip() and not line.startswith("Progress:"):  # 排除非结果行
                         completed_ips += 1
                         print(f"\r测速进度: 已完成 {completed_ips}/{total_ips} ({completed_ips/total_ips*100:.2f}%)", end='')
                 lines.append(line)
