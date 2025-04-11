@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 配置
-URL = "https://bihai.cf/CFIP/CUCC/standard.csv"  
+URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"  
 IP_LIST_FILE = "ip.txt"
 IPS_FILE = "ips.txt"
 SPEEDTEST_SCRIPT = "./iptest.sh"
@@ -284,7 +284,6 @@ def run_speed_test() -> str:
         stdout_lines = []
         stderr_lines = []
 
-        # 读取 ip.txt 获取总 IP 数量
         total_ips = 0
         with open(IP_LIST_FILE, 'r') as f:
             total_ips = len(f.readlines())
@@ -299,7 +298,7 @@ def run_speed_test() -> str:
                     break
                 if stream_name == "stdout":
                     print(line.strip())
-                    if "发现有效IP" in line:
+                    if "已完成" in line:  # 根据实际日志调整
                         completed_ips += 1
                         print(f"\r测速进度: 已完成 {completed_ips}/{total_ips} ({completed_ips/total_ips*100:.2f}%)", end='')
                 lines.append(line)
