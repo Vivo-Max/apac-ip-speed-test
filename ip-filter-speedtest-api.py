@@ -3,6 +3,7 @@ import re
 import csv
 import subprocess
 import os
+import json
 import logging
 import sys
 import threading
@@ -22,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 配置
-URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"
+URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"  
 IP_LIST_FILE = "ip.txt"
 IPS_FILE = "ips.txt"
 SPEEDTEST_SCRIPT = "./iptest.sh"
@@ -298,8 +299,8 @@ def run_speed_test() -> str:
                     break
                 if stream_name == "stdout":
                     print(line.strip())
-                    # 假设每行输出表示一个 IP 的测速结果
-                    if line.strip() and not line.startswith("Progress:"):
+                    # 只在包含 "下载速度" 的行（即实际测速结果）时计数
+                    if "下载速度" in line:
                         completed_ips += 1
                         print(f"\r测速进度: 已完成 {completed_ips}/{total_ips} ({completed_ips/total_ips*100:.2f}%)", end='')
                 lines.append(line)
@@ -358,12 +359,30 @@ def filter_speed_and_deduplicate(csv_file: str):
         writer.writerows(final_rows)
     logger.info(f"去重完成，{csv_file} 包含 {len(final_rows)} 条记录")
 
+import json
+
+def load_ip_country_cache() -> dict:
+    """加载 IP 国家缓存"""
+    cache_file = "ip_country_cache.json"
+    if os.path.exists(cache_file):
+        with open(cache_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_ip_country_cache(cache: dict):
+    """保存 IP 国家缓存"""
+    cache_file = "ip_country_cache.json"
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+
 def get_country_from_ip(ip: str, cache: dict) -> str:
     """通过 IP 查询国家代码，带缓存和重试"""
     if ip in cache:
         return cache[ip]
     for attempt in range(3):
         try:
+            # 确保每分钟不超过 45 个请求，间隔至少 1.5 秒
+            time.sleep(1.5)
             response = requests.get(f"http://ip-api.com/json/{ip}", timeout=5)
             response.raise_for_status()
             data = response.json()
@@ -388,11 +407,12 @@ def generate_ips_file(csv_file: str):
         logger.info(f"{csv_file} 不存在，跳过生成 {IPS_FILE}")
         return
 
-    country_cache = {}
+    # 加载缓存
+    country_cache = load_ip_country_cache()
     final_nodes = []
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
-        next(reader)
+        next(reader)  # 跳过表头
         for row in reader:
             if len(row) < 2:
                 continue
@@ -405,6 +425,9 @@ def generate_ips_file(csv_file: str):
                 final_nodes.append((ip, int(port), country))
             else:
                 logger.debug(f"过滤掉 {ip}:{port}，国家 {country} 不在 {DESIRED_COUNTRIES}")
+
+    # 保存缓存
+    save_ip_country_cache(country_cache)
 
     if not final_nodes:
         logger.info(f"没有符合条件的节点，跳过生成 {IPS_FILE}")
