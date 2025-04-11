@@ -47,12 +47,16 @@ jobs:
         run: |
           # 更换为阿里云镜像源（可选，视网络情况选择）
           sudo sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
-          sudo sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
+          sudo sed -i 's|http://security.Ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
+
+          # 清理软件源
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
 
           # 重试机制，最多尝试 3 次，每次超时 5 分钟
           for i in {1..3}; do
             echo "尝试第 $i 次执行 apt-get update..."
-            timeout 300 sudo apt-get update && break
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update && break
             if [ $i -eq 3 ]; then
               echo "apt-get update 失败，退出"
               exit 1
@@ -62,7 +66,7 @@ jobs:
           done
 
           # 安装 curl 和 libcurl4-openssl-dev
-          sudo apt-get install -y curl libcurl4-openssl-dev
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y curl libcurl4-openssl-dev
 
       - name: Create iptest.sh
         run: |
