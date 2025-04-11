@@ -3,11 +3,11 @@ import re
 import csv
 import subprocess
 import os
-import json
 import logging
 import sys
 import threading
 import time
+import json
 from typing import List, Tuple
 from collections import defaultdict
 from requests.adapters import HTTPAdapter
@@ -23,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 配置
-URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"  
+URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"
 IP_LIST_FILE = "ip.txt"
 IPS_FILE = "ips.txt"
 SPEEDTEST_SCRIPT = "./iptest.sh"
@@ -95,7 +95,6 @@ def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int]]:
         logger.error(f"获取内容失败: {e}")
         return []
 
-    from charset_normalizer import detect
     result = detect(raw_content)
     encoding = result.get("encoding", "utf-8")
     logger.info(f"检测到 URL 内容的编码: {encoding}")
@@ -180,7 +179,6 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int]]:
 
     with open(file_path, "rb") as f:
         raw_data = f.read()
-    from charset_normalizer import detect
     result = detect(raw_data)
     encoding = result.get("encoding", "utf-8")
     logger.info(f"检测到文件 {file_path} 的编码: {encoding}")
@@ -358,8 +356,6 @@ def filter_speed_and_deduplicate(csv_file: str):
         writer.writerow(header)
         writer.writerows(final_rows)
     logger.info(f"去重完成，{csv_file} 包含 {len(final_rows)} 条记录")
-
-import json
 
 def load_ip_country_cache() -> dict:
     """加载 IP 国家缓存"""
