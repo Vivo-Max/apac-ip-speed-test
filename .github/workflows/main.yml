@@ -2,26 +2,24 @@ name: IP Speed Test
 
 on:
   schedule:
-    - cron: '0 0 * * 1'
+    - cron: '0 0 * * 1'  # 每周一 00:00 UTC
   workflow_dispatch:
 
 jobs:
   speed-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
 
     steps:
-      # 1. 检出代码
       - uses: actions/checkout@v4
 
-      # 2. 设置 Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
-      # 3. 缓存 Python 依赖
       - name: Cache Python dependencies
         uses: actions/cache@v3
         with:
@@ -30,35 +28,34 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      # 4. 安装 Python 依赖
       - name: Install Python dependencies
-        run: pip install requests
+        run: pip install requests charset-normalizer
 
-      # 5. 确保 iptest 和 iptest.sh 可执行
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl libcurl4-openssl-dev
+
       - name: Make iptest and iptest.sh executable
         run: |
-          chmod +x iptest
-          chmod +x iptest.sh
+          chmod +x iptest || echo "iptest not found"
+          chmod +x iptest.sh || echo "iptest.sh not found"
 
-      # 6. 调试工作目录（可选）
       - name: Debug working directory
         run: |
           pwd
           ls -la
 
-      # 7. 测试测速 URL（可选）
       - name: Test speed test URL
         run: |
           curl -I "https://speed.cloudflare.com/__down?bytes=1000000"
 
-      # 8. 运行脚本
       - name: Run speed test
         run: |
           echo "Start time: $(date)"
-          python3 scrape_and_speedtest.py
+          python3 ip-filter-speedtest-api.py
           echo "End time: $(date)"
 
-      # 9. 调试生成的文件（可选）
       - name: Debug generated files
         run: |
           echo "Current directory: $(pwd)"
@@ -76,13 +73,11 @@ jobs:
             echo "ips.txt does not exist"
           fi
 
-      # 10. 提交结果
       - name: Commit and push
         run: |
           echo "Start time: $(date)"
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-          # 添加 ip.csv 和 ips.txt
           if [ -f ip.csv ]; then
             git add ip.csv
           fi
