@@ -21,13 +21,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 配置（支持环境变量）
-URL = os.getenv("PROXY_URL", "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv")
-IP_LIST_FILE = os.getenv("IP_LIST_FILE", "ip.txt")
-IPS_FILE = os.getenv("IPS_FILE", "ips.txt")
-SPEEDTEST_SCRIPT = os.getenv("SPEEDTEST_SCRIPT", "./iptest.sh")
-FINAL_CSV = os.getenv("FINAL_CSV", "ip.csv")
-INPUT_FILE = os.getenv("INPUT_FILE", "input.csv")
+# 配置
+URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"
+IP_LIST_FILE = "ip.txt"
+IPS_FILE = "ips.txt"
+SPEEDTEST_SCRIPT = "./iptest.sh"
+FINAL_CSV = "ip.csv"
+INPUT_FILE = "input.csv"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9",
@@ -35,7 +35,7 @@ HEADERS = {
 }
 
 # 指定需要写入 ips.txt 的国家代码
-DESIRED_COUNTRIES = os.getenv("DESIRED_COUNTRIES", "TW,JP,HK,SG,KR,IN,KP,VN,TH,MM").split(",")
+DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
 
 # 国家代码到 emoji 和中文名称的映射
 COUNTRY_LABELS = {
@@ -62,12 +62,12 @@ COUNTRY_LABELS = {
     'CL': ('🇨🇱', '智利'), 'CO': ('🇨🇴', '哥伦比亚'), 'PE': ('🇵🇪', '秘鲁'),
     'MX': ('🇲🇽', '墨西哥'), 'VE': ('🇻🇪', '委内瑞拉'), 'SE': ('🇸🇪', '瑞典'),
     'NO': ('🇳🇴', '挪威'), 'DK': ('🇩🇰', '丹麦'), 'CH': ('🇨🇭', '瑞士'),
-    'AT': ('🇦🇹', '奥地利'), 'BE': ('� Rubik', '比利时'), 'IE': ('🇮🇪', '爱尔兰'),
-    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇬🇷', '保加利亚'),
+    'AT': ('🇦🇹', '奥地利'), 'BE': ('🇧🇪', '比利时'), 'IE': ('🇮🇪', '爱尔兰'),
+    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇧🇬', '保加利亚'),
     'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
     'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
     'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
-    'KG': ('🇰🇬', '吉尔吉斯斯坦'), 'TJ': ('🇹🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
+    'KG': ('�KG', '吉尔吉斯斯坦'), 'TJ': ('🇹🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
     'GE': ('🇬🇪', '格鲁吉亚'), 'AM': ('🇦🇲', '亚美尼亚'), 'AZ': ('🇦🇿', '阿塞拜疆'),
     'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
     'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
