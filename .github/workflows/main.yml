@@ -91,7 +91,7 @@ jobs:
         with:
           timeout_minutes: 60
           max_attempts: 3
-          command: python -u ip-filter-speedtest-api.py
+          command: python -u ip-filter-speedtest-api.py --encoding=utf-8
           on-retry: |
             echo "Retrying proxy IP check..."
 
