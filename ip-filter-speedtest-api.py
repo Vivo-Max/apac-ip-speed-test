@@ -180,7 +180,7 @@ def extract_ip_ports_from_file(file_path: str, encoding: str = 'utf-8') -> List[
             if country_col != -1:
                 fields = line.split(delimiter)
                 if country_col < len(fields):
-                    country = standardize_country(fields[country_col].strip())
+                    country = standardize_country(fields[couple_col].strip())
                     if not country:
                         logger.warning(f"检测到可能的乱码国家: {fields[country_col]}，跳过")
                         continue
@@ -244,14 +244,16 @@ def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int, str]]:
         return []
 
 def check_dependencies() -> None:
-    """检查依赖（假设实现）"""
+    """检查依赖"""
     required_commands = ['iptest']
     for cmd in required_commands:
-        try:
-            subprocess.run([cmd, '--version'], capture_output=True, check=True)
-        except subprocess.CalledProcessError:
-            logger.error(f"依赖 {cmd} 未安装或不可用")
+        if not os.path.isfile(cmd):
+            logger.error(f"依赖 {cmd} 不存在")
             sys.exit(1)
+        if not os.access(cmd, os.X_OK):
+            logger.error(f"依赖 {cmd} 没有执行权限")
+            sys.exit(1)
+        logger.info(f"依赖 {cmd} 检查通过")
 
 def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     """将 IP 和端口写入 ip.txt"""
@@ -268,6 +270,20 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
 def run_speed_test() -> str:
     """运行测速（调用 iptest.sh）"""
     try:
+        # 确保 iptest.sh 和 iptest 存在且可执行
+        if not os.path.isfile("iptest.sh"):
+            logger.error("iptest.sh 不存在")
+            return ''
+        if not os.access("iptest.sh", os.X_OK):
+            logger.error("iptest.sh 没有执行权限")
+            return ''
+        if not os.path.isfile("iptest"):
+            logger.error("iptest 不存在")
+            return ''
+        if not os.access("iptest", os.X_OK):
+            logger.error("iptest 没有执行权限")
+            return ''
+
         cmd = [
             "./iptest.sh",
             f"-file={IP_LIST_FILE}",
@@ -286,28 +302,36 @@ def run_speed_test() -> str:
         return SPEEDTEST_CSV
     except subprocess.CalledProcessError as e:
         logger.error(f"测速失败: {e}")
+        logger.error(f"iptest.sh stdout: {e.stdout}")
         logger.error(f"iptest.sh stderr: {e.stderr}")
+        return ''
+    except FileNotFoundError as e:
+        logger.error(f"找不到命令: {e}")
         return ''
     except Exception as e:
         logger.error(f"运行测速命令时发生未知错误: {e}")
         return ''
 
 def filter_speed_and_deduplicate(csv_file: str) -> None:
-    """根据速度过滤并去重（假设实现）"""
+    """根据速度过滤并去重"""
     try:
         if not os.path.exists(csv_file):
             logger.error(f"测速结果文件 {csv_file} 不存在")
             return
-        # 假设 CSV 文件格式：IP,Port,Speed
+        # 假设 CSV 文件格式：IP地址,端口,TLS,数据中心,地区,国际代码,国家,城市,网络延迟,下载速度MB/s
         records = []
         with open(csv_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             for line in lines[1:]:  # 跳过表头
                 fields = line.strip().split(',')
-                if len(fields) >= 3:
-                    ip, port, speed = fields[0], fields[1], float(fields[2])
-                    if speed >= 10:  # 速度阈值 10 MB/s
-                        records.append((ip, port, speed))
+                if len(fields) >= 10:
+                    ip, port, _, _, _, _, _, _, _, speed = fields[:10]
+                    try:
+                        speed = float(speed)
+                        if speed >= 10:  # 速度阈值 10 MB/s
+                            records.append((ip, port, speed))
+                    except ValueError:
+                        continue
         # 按速度降序排序并去重
         records.sort(key=lambda x: x[2], reverse=True)
         seen = set()
@@ -319,26 +343,30 @@ def filter_speed_and_deduplicate(csv_file: str) -> None:
                 unique_records.append((ip, port, speed))
         # 写回文件
         with open(csv_file, 'w', encoding='utf-8') as f:
-            f.write("IP,Port,Speed\n")
+            f.write("IP地址,端口,TLS,数据中心,地区,国际代码,国家,城市,网络延迟,下载速度MB/s\n")
             for ip, port, speed in unique_records:
-                f.write(f"{ip},{port},{speed}\n")
+                f.write(f"{ip},{port},true,0.0,亚太,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,{speed}\n")
         logger.info(f"过滤并去重完成，保留 {len(unique_records)} 个记录")
     except Exception as e:
         logger.error(f"过滤并去重失败: {e}")
 
 def generate_ips_file(csv_file: str) -> None:
-    """生成 ips.txt（假设实现）"""
+    """生成 ips.txt"""
     try:
         if not os.path.exists(csv_file):
             logger.error(f"测速结果文件 {csv_file} 不存在")
             return
+        country_flags = {
+            'JP': '🇯🇵', 'HK': '🇭🇰', 'TW': '🇹🇼', 'SG': '🇸🇬', 'CN': '🇨🇳', 'US': '🇺🇸', 'KR': '🇰🇷'
+        }
         with open(csv_file, 'r', encoding='utf-8') as f_in, open(IPS_FILE, 'w', encoding='utf-8') as f_out:
             lines = f_in.readlines()
-            for line in lines[1:]:  # 跳过表头
+            for idx, line in enumerate(lines[1:], 1):  # 跳过表头
                 fields = line.strip().split(',')
-                if len(fields) >= 2:
-                    ip, port = fields[0], fields[1]
-                    f_out.write(f"{ip} {port}\n")
+                if len(fields) >= 7:
+                    ip, port, _, _, _, _, country = fields[:7]
+                    flag = country_flags.get(country, '🌐')
+                    f_out.write(f"{ip}:{port}#{flag}{country}-{idx}\n")
         logger.info(f"已生成 {IPS_FILE}")
     except Exception as e:
         logger.error(f"生成 {IPS_FILE} 失败: {e}")
