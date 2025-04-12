@@ -1,100 +1,51 @@
-name: IP Filter and Speed Test
+name: APAC IP Speed Test
 
 on:
   push:
-    branches:
-      - main
-  schedule:
-    - cron: '0 0 * * *'  # 每天运行一次
-  workflow_dispatch:  # 允许手动触发
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  filter-and-test:
+  speed-test:
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
     steps:
-      # 检出代码
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      # 设置 Python 环境
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
 
-      # 安装依赖
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests charset-normalizer urllib3
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      # 调试：检查文件是否存在
-      - name: Check files
-        run: |
-          echo "Listing files in repository..."
-          ls -la
-          echo "Checking input.csv..."
-          if [ -f "input.csv" ]; then
-            echo "input.csv exists"
-            head -n 5 input.csv
-          else
-            echo "input.csv does not exist"
-            exit 1
-          fi
-          echo "Checking iptest..."
-          if [ -f "iptest" ]; then
-            echo "iptest exists"
-          else
-            echo "iptest does not exist"
-            exit 1
-          fi
-          echo "Checking iptest.sh..."
-          if [ -f "iptest.sh" ]; then
-            echo "iptest.sh exists"
-          else
-            echo "iptest.sh does not exist"
-            exit 1
-          fi
+    - name: Run speed test script
+      run: python ip-filter-speedtest-api.py
 
-      # 确保 iptest 和 iptest.sh 可执行
-      - name: Make files executable
-        run: |
-          chmod +x iptest
-          chmod +x iptest.sh
+    - name: Print working directory and list files
+      run: |
+        echo "当前工作目录："
+        pwd
+        echo "列出文件："
+        ls -lh
+        echo "检查 ip.txt, ip.csv, ips.txt 是否存在："
+        ls -lh ip.txt ip.csv ips.txt || echo "某些文件不存在"
+        echo "显示 ips.txt 内容："
+        cat ips.txt || echo "ips.txt 不存在"
 
-      # 运行脚本
-      - name: Run IP filter and speed test
-        run: python ip-filter-speedtest-api.py
-
-      # 调试：检查生成的文件
-      - name: Check generated files
-        run: |
-          echo "Checking ip.txt..."
-          if [ -f "ip.txt" ]; then
-            cat ip.txt
-          else
-            echo "ip.txt not found"
-          fi
-          echo "Checking ip.csv..."
-          if [ -f "ip.csv" ]; then
-            cat ip.csv
-          else
-            echo "ip.csv not found"
-          fi
-          echo "Checking ips.txt..."
-          if [ -f "ips.txt" ]; then
-            cat ips.txt
-          else
-            echo "ips.txt not found"
-          fi
-
-      # 上传结果（可选）
-      - name: Upload results
-        uses: actions/upload-artifact@v4
-        with:
-          name: speed-test-results
-          path: |
-            ip.txt
-            ip.csv
-            ips.txt
+    - name: Upload speed test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: speed-test-results
+        path: |
+          ip.txt
+          ip.csv
+          ips.txt
+        if-no-files-found: warn
