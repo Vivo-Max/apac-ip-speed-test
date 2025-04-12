@@ -54,7 +54,7 @@ COUNTRY_LABELS = {
     'AE': ('🇦🇪', '阿联酋'), 'QA': ('🇶🇦', '卡塔尔'), 'IL': ('🇮🇱', '以色列'),
     'TR': ('🇹🇷', '土耳其'), 'IR': ('🇮🇷', '伊朗'),
     'CN': ('🇨🇳', '中国'), 'BD': ('🇧🇩', '孟加拉国'), 'PK': ('🇵🇰', '巴基斯坦'),
-    'LK': ('🇱🇰', '斯里兰卡'), 'NP': ('🇳🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
+    'LK': ('🇱🇰', '斯里兰卡'), 'NP': ('🇵🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
     'MV': ('🇲🇻', '马尔代夫'), 'BN': ('🇧🇳', '文莱'), 'TL': ('🇹🇱', '东帝汶'),
     'EG': ('🇪🇬', '埃及'), 'ZA': ('🇿🇦', '南非'), 'NG': ('🇳🇬', '尼日利亚'),
     'KE': ('🇰🇪', '肯尼亚'), 'GH': ('🇬🇭', '加纳'), 'MA': ('🇲🇦', '摩洛哥'),
@@ -67,7 +67,7 @@ COUNTRY_LABELS = {
     'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
     'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
     'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
-    'KG': ('�KG', '吉尔吉斯斯坦'), 'TJ': ('🇹🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
+    'KG': ('🇰🇬', '吉尔吉斯斯坦'), 'TJ': ('🇹🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
     'GE': ('🇬🇪', '格鲁吉亚'), 'AM': ('🇦🇲', '亚美尼亚'), 'AZ': ('🇦🇿', '阿塞拜疆'),
     'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
     'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
@@ -115,6 +115,9 @@ def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int]]:
     except UnicodeDecodeError as e:
         logger.error(f"无法以 {encoding} 解码 URL 内容: {e}")
         return []
+
+    # 调试：记录原始内容前几行
+    logger.debug(f"URL 内容前5行: {content.splitlines()[:5]}")
 
     # 统一换行符
     content = content.replace('\r\n', '\n').replace('\r', '\n')
@@ -211,12 +214,15 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int]]:
 
     logger.info(f"从本地文件 {file_path} 读取内容 (长度: {len(content)} 字节)")
 
+    # 调试：记录文件内容前几行
+    logger.debug(f"文件 {file_path} 内容前5行: {content.splitlines()[:5]}")
+
     # 统一换行符
     content = content.replace('\r\n', '\n').replace('\r', '\n')
     lines = content.splitlines()
 
     # 正则表达式匹配 IPv4 和 IPv6
-    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})')
+    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F But    {0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})')
 
     # 动态检测分隔符
     comma_count = sum(1 for line in lines[:5] if ',' in line and line.strip())
@@ -447,26 +453,25 @@ def generate_ips_file(csv_file: str):
 def main(prefer_url: bool = False):
     """主函数"""
     check_dependencies()
+    ip_ports = []
     if not prefer_url and os.path.exists(INPUT_FILE):
         # 从本地 input.csv 获取 IP 和端口
+        logger.info(f"尝试从本地文件 {INPUT_FILE} 获取 IP")
         ip_ports = extract_ip_ports_from_file(INPUT_FILE)
         if not ip_ports:
-            logger.error("未找到符合条件的节点")
-            sys.exit(1)
-        ip_file = write_ip_list(ip_ports)
-        if ip_file:
-            with open(ip_file, "r", encoding="utf-8") as f:
-                logger.info(f"ip.txt 内容:\n{f.read()}")
-    else:
+            logger.warning(f"本地文件 {INPUT_FILE} 未找到有效节点，尝试 URL")
+    if not ip_ports:
         # 从 URL 获取 IP 和端口
+        logger.info(f"尝试从 URL {URL} 获取 IP")
         ip_ports = fetch_and_extract_ip_ports_from_url(URL)
         if not ip_ports:
             logger.error("未找到符合条件的节点")
             sys.exit(1)
-        ip_file = write_ip_list(ip_ports)
-        if ip_file:
-            with open(ip_file, "r", encoding="utf-8") as f:
-                logger.info(f"ip.txt 内容:\n{f.read()}")
+
+    ip_file = write_ip_list(ip_ports)
+    if ip_file:
+        with open(ip_file, "r", encoding="utf-8") as f:
+            logger.info(f"ip.txt 内容:\n{f.read()}")
 
     # 运行测速
     csv_file = run_speed_test()
