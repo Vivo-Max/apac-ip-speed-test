@@ -1,12 +1,15 @@
-name: Proxy IP Check
+name: IP Filter and Speed Test
 
 on:
+  push:
+    branches:
+      - main
   schedule:
-    - cron: '0 0 * * *' # 每天 UTC 时间 00:00 运行
-  workflow_dispatch: # 支持手动触发
+    - cron: '0 0 * * *'  # 每天运行一次
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
-  check-proxy-ip:
+  filter-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,54 +21,69 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.x'
 
-      # 安装 Python 依赖
+      # 安装依赖
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests charset-normalizer
+          pip install requests charset-normalizer urllib3
+
+      # 调试：检查 input.csv 是否存在
+      - name: Check input.csv
+        run: |
+          if [ -f "input.csv" ]; then
+            echo "input.csv exists"
+            cat input.csv
+          else
+            echo "input.csv does not exist"
+            exit 1
+          fi
 
       # 确保 iptest.sh 可执行
-      - name: Make scripts executable
-        run: |
-          chmod +x iptest.sh
-          # 如果 iptest 二进制文件在仓库中，取消注释以下行
-          # chmod +x iptest
+      - name: Make iptest.sh executable
+        run: chmod +x iptest.sh
 
-      # 可选：下载 iptest 二进制文件（如果不包含在仓库中）
-      # - name: Download iptest binary
-      #   run: |
-      #     curl -o iptest https://your-binary-url/iptest
-      #     chmod +x iptest
+      # 安装 iptest.sh 可能需要的工具（根据实际需求调整）
+      - name: Install required tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl  # 如果 iptest.sh 使用 curl
+          # 如果 iptest.sh 使用 speedtest-cli，取消注释以下行
+          # sudo apt-get install -y speedtest-cli
 
       # 运行脚本
-      - name: Run proxy IP check
-        env:
-          PROXY_URL: ${{ secrets.PROXY_URL }} # 可选：敏感 URL 存储在 Secrets
-          DESIRED_COUNTRIES: "TW,JP,HK,SG,KR,IN,KP,VN,TH,MM"
-        run: |
-          python ip-filter-speedtest-api.py --url-first
+      - name: Run IP filter and speed test
+        run: python ip-filter-speedtest-api.py
 
-      # 保存输出文件
-      - name: Upload artifacts
+      # 调试：检查生成的文件
+      - name: Check generated files
+        run: |
+          echo "Checking ip.txt..."
+          if [ -f "ip.txt" ]; then
+            cat ip.txt
+          else
+            echo "ip.txt not found"
+          fi
+          echo "Checking ip.csv..."
+          if [ -f "ip.csv" ]; then
+            cat ip.csv
+          else
+            echo "ip.csv not found"
+          fi
+          echo "Checking ips.txt..."
+          if [ -f "ips.txt" ]; then
+            cat ips.txt
+          else
+            echo "ips.txt not found"
+          fi
+
+      # 上传结果（可选）
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: proxy-ip-results
+          name: speed-test-results
           path: |
             ip.txt
-            ips.txt
             ip.csv
-          if-no-files-found: warn
-
-      # 提交结果到仓库
-      - name: Commit and push results
-        if: success()
-        run: |
-          git config --global user.name 'GitHub Action'
-          git config --global user.email 'action@github.com'
-          git add ip.txt ips.txt ip.csv
-          git commit -m "Update proxy IP results $(date -u +'%Y-%m-%d %H:%M:%S UTC')" || echo "No changes to commit"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            ips.txt
