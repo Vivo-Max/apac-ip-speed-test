@@ -8,21 +8,19 @@ on:
     branches:
       - main
   schedule:
-    - cron: '0 0 * * *'  # 每天 UTC 00:00 运行
+    - cron: '0 0 * * 0'  # 每周日 UTC 00:00 运行
   workflow_dispatch:  # 支持手动触发
 
 jobs:
   check-proxy-ip:
     runs-on: ubuntu-latest
 
-    # 确保工作流有推送权限
-    permissions:
-      contents: write
-
     steps:
       # 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       # 检查工作目录
       - name: Check working directory
@@ -60,17 +58,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl wget
-
-      # 检查 iptest 二进制文件
-      - name: Check iptest binary
-        run: |
-          if [ -f "iptest" ]; then
-            chmod +x iptest
-            ls -l iptest
-            ldd iptest || echo "Failed to check iptest dependencies"
-          else
-            echo "iptest binary not found, assuming iptest.sh handles testing"
-          fi
 
       # 确保测速脚本存在并可执行
       - name: Prepare speedtest script
@@ -127,15 +114,23 @@ jobs:
             echo "ips.txt not found!"
           fi
 
-      # 提交并推送生成的文件到仓库
+      # 提交并推送生成的文件
       - name: Commit and push generated files
         if: always()
         run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
           git add ip.txt ip.csv ips.txt || echo "No files to add"
-          git commit -m "Update generated files: ip.txt, ip.csv, ips.txt [skip ci]" || echo "Nothing to commit"
-          git push || echo "Failed to push, possibly nothing to commit or no push permissions"
+          git status
+          git diff --staged
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update generated files: ip.txt, ip.csv, ips.txt [skip ci]"
+            git push origin main
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # 上传结果文件
       - name: Upload artifacts
