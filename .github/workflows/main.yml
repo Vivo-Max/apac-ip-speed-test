@@ -26,14 +26,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests charset-normalizer
 
-      # 确保 iptest.sh 可执行
+      # 确保 iptest.sh 和 iptest 可执行
       - name: Make scripts executable
         run: |
           chmod +x iptest.sh
-          # 如果 iptest 二进制文件在仓库中，取消注释以下行
-          # chmod +x iptest
+          chmod +x iptest || echo "iptest not found, assuming it will be downloaded"
 
-      # 可选：下载 iptest 二进制文件（如果不包含在仓库中）
+      # 可选：下载 iptest 二进制文件
       # - name: Download iptest binary
       #   run: |
       #     curl -o iptest https://your-binary-url/iptest
@@ -61,7 +60,10 @@ jobs:
         run: |
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
-          git add ip.txt ips.txt ip.csv
+          # 仅添加存在的文件
+          for file in ip.txt ips.txt ip.csv; do
+            [ -f "$file" ] && git add "$file"
+          done
           git commit -m "Update proxy IP results $(date -u +'%Y-%m-%d %H:%M:%S UTC')" || echo "No changes to commit"
           git push
         env:
