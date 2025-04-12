@@ -35,7 +35,6 @@ logger.setLevel(logging.DEBUG)
 # 配置
 IP_LIST_FILE = "ip.txt"
 IPS_FILE = "ips.txt"
-SPEEDTEST_SCRIPT = "./iptest"
 FINAL_CSV = "ip.csv"
 INPUT_FILE = "input.csv"
 TEMP_FILE = os.path.join(tempfile.gettempdir(), "temp_proxy.csv")
@@ -87,7 +86,7 @@ COUNTRY_LABELS = {
     'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
     'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
     'IQ': ('🇮🇶', '伊拉克'), 'YE': ('🇾🇪', '也门'),
-    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
+    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('�LV', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
 }
 COUNTRY_ALIASES = {
     'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'KOREA, REPUBLIC OF': 'KR',
@@ -111,6 +110,38 @@ COUNTRY_ALIASES = {
     'BURMA': 'MM', 'MYANMAR': 'MM', '缅甸': 'MM',
     'NORTH KOREA': 'KP', 'KOREA, DEMOCRATIC PEOPLE\'S REPUBLIC OF': 'KP', '朝鲜': 'KP'
 }
+
+# 动态查找 iptest.sh 或 iptest，并验证 iptest 存在
+def find_speedtest_script() -> str:
+    """查找测速脚本，优先 iptest.sh"""
+    candidates = ["./iptest.sh", "./iptest"]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            if not os.access(candidate, os.X_OK):
+                try:
+                    os.chmod(candidate, 0o755)
+                    logger.info(f"已为 {candidate} 添加执行权限")
+                except Exception as e:
+                    logger.error(f"无法为 {candidate} 添加执行权限: {e}")
+                    continue
+            # 如果是 iptest.sh，检查是否能找到 iptest
+            if candidate == "./iptest.sh":
+                if not os.path.exists("./iptest"):
+                    logger.error("找到 iptest.sh，但未找到 iptest 二进制文件")
+                    continue
+                if not os.access("./iptest", os.X_OK):
+                    try:
+                        os.chmod("./iptest", 0o755)
+                        logger.info("已为 ./iptest 添加执行权限")
+                    except Exception as e:
+                        logger.error(f"无法为 ./iptest 添加执行权限: {e}")
+                        continue
+            logger.info(f"找到测速脚本: {candidate}")
+            return candidate
+    logger.error("未找到测速脚本（尝试 ./iptest.sh 或 ./iptest）。请确保 iptest.sh 和 iptest 存在于当前目录")
+    return None
+
+SPEEDTEST_SCRIPT = find_speedtest_script()
 
 # 全局 GeoIP 数据库连接
 geoip_reader = None
@@ -604,6 +635,9 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
 
 def run_speed_test() -> str:
     """运行测速脚本"""
+    if not SPEEDTEST_SCRIPT:
+        logger.error("测速脚本未找到，跳过测速")
+        return None
     if not os.path.exists(SPEEDTEST_SCRIPT):
         logger.error(f"测速脚本 {SPEEDTEST_SCRIPT} 不存在")
         return None
@@ -624,6 +658,7 @@ def run_speed_test() -> str:
             "-speedlimit=10",
             "-url=speed.cloudflare.com/__down?bytes=50000000",
             "-max=200",
+            "-timeout=30",
             f"-outfile={FINAL_CSV}"
         ]
         logger.info(f"运行测速命令: {' '.join(cmd)}")
