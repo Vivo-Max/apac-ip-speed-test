@@ -1,67 +1,77 @@
 name: Proxy IP Check
 
 on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
   schedule:
-    - cron: '0 0 * * 0' # 每周日 UTC 时间 00:00 运行
-  workflow_dispatch: # 支持手动触发
+    - cron: '0 0 * * *'  # 每天 UTC 00:00 运行
+  workflow_dispatch:  # 支持手动触发
 
 jobs:
   check-proxy-ip:
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # 作业超时 15 分钟
 
     steps:
       # 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 检查 input.csv 是否存在
+      - name: Check for input.csv
+        run: |
+          if [ ! -f "input.csv" ]; then
+            echo "Error: input.csv not found! Please upload input.csv to the repository."
+            exit 1
+          fi
+
       # 设置 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.x'
 
-      # 安装 Python 依赖
+      # 安装依赖
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests charset-normalizer
 
-      # 确保 iptest.sh 和 iptest 可执行
-      - name: Make scripts executable
+      # 确保测速脚本存在并可执行
+      - name: Prepare speedtest script
         run: |
-          chmod +x iptest.sh
-          chmod +x iptest || echo "iptest not found"
+          if [ -f "iptest.sh" ]; then
+            chmod +x iptest.sh
+          else
+            echo "iptest.sh not found!"
+            exit 1
+          fi
 
-      # 运行脚本（超时 10 分钟，重试 1 次）
+      # 运行脚本，带重试机制
       - name: Run proxy IP check
         uses: nick-invision/retry@v3
         with:
-          timeout_minutes: 10
+          timeout_minutes: 30  # 增加时间，考虑 API 查询
           max_attempts: 2
-          command: python ip-filter-speedtest-api.py --url-first
+          command: python ip-filter-speedtest-api.py
 
-      # 保存输出文件
+      # 上传结果文件
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: proxy-ip-results
           path: |
             ip.txt
-            ips.txt
             ip.csv
+            ips.txt
+            country_cache.json
           if-no-files-found: warn
 
-      # 提交结果到仓库
-      - name: Commit and push results
+      # （可选）清理缓存文件
+      - name: Clean up
         if: always()
         run: |
-          git config --global user.name 'GitHub Action'
-          git config --global user.email 'action@github.com'
-          for file in ip.txt ips.txt ip.csv; do
-            [ -f "$file" ] && git add "$file"
-          done
-          git commit -m "Update proxy IP results $(date -u +'%Y-%m-%d %H:%M:%S UTC')" || echo "No changes to commit"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          rm -f country_cache.json
