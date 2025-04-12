@@ -102,7 +102,7 @@ COUNTRY_ALIASES = {
 }
 
 # 检查依赖
-REQUIRED_PACKAGES = ['requests', 'charset_normalizer']
+REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'tqdm']  # 新增 tqdm
 
 def check_dependencies():
     for pkg in REQUIRED_PACKAGES:
@@ -215,7 +215,7 @@ def find_country_column(lines: List[str], delimiter: str) -> Tuple[int, int, int
     return ip_col, port_col, country_col
 
 def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int, str]]:
-    """从 URL 获取并提取 IP、端口和国家（若存在），去重"""
+    """从 URL 获取并提取 IP、端口和国家（若存在），去重，显示下载进度"""
     if not url:
         logger.error("未提供 URL")
         return []
@@ -230,9 +230,26 @@ def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int, str]]:
         session.mount('https://', HTTPAdapter(max_retries=retries))
         response = session.get(url, timeout=30, headers=HEADERS, stream=True)
         response.raise_for_status()
+
+        # 获取内容长度（如果有）
+        total_size = int(response.headers.get('content-length', 0))
         raw_content = b""
-        for chunk in response.iter_content(chunk_size=8192):
-            raw_content += chunk
+        chunk_size = 8192
+
+        # 下载进度条
+        if total_size:
+            progress_bar = tqdm(
+                total=total_size, unit='B', unit_scale=True, desc="Downloading"
+            )
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                raw_content += chunk
+                progress_bar.update(len(chunk))
+            progress_bar.close()
+        else:
+            logger.info("无内容长度信息，下载中...")
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                raw_content += chunk
+
         logger.info(f"从 URL 获取内容: {url} (长度: {len(raw_content)} 字节)")
     except Exception as e:
         logger.error(f"从 URL {url} 获取内容失败: {e}")
@@ -252,7 +269,7 @@ def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int, str]]:
     return extract_ip_ports_from_content(content)
 
 def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
-    """从字符串内容提取 IP、端口和国家（若存在），去重"""
+    """从字符串内容提取 IP、端口和国家（若存在），去重，显示解析进度"""
     server_port_pairs = []
     invalid_lines = []
 
@@ -285,54 +302,61 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
 
     ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})')
 
-    for i, line in enumerate(lines_to_process):
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-
-        match = ip_port_pattern.match(line)
-        if match:
-            server = match.group(1).strip('[]')
-            port = int(match.group(4))
-            country = ''
-            if delimiter and country_col != -1:
-                fields = line.split(delimiter)
-                if country_col < len(fields):
-                    country = standardize_country(fields[country_col].strip())
-            if is_valid_port(str(port)):
-                server_port_pairs.append((server, port, country))
-                logger.debug(f"解析到: {server}:{port}, 国家: {country or '无'}")
-            else:
-                invalid_lines.append(f"Line {i}: {line} (Invalid port range)")
-            continue
-
-        if delimiter:
-            fields = line.split(delimiter)
-            if len(fields) < max(ip_col, port_col) + 1:
-                invalid_lines.append(f"Line {i}: {line} (Too few fields)")
+    # 解析进度条
+    with tqdm(total=len(lines_to_process), unit='line', desc="Parsing lines") as pbar:
+        for i, line in enumerate(lines_to_process):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                pbar.update(1)
                 continue
 
-            server = fields[ip_col].strip('[]')
-            port_str = fields[port_col].strip()
-            country = ''
-            if country_col != -1 and country_col < len(fields):
-                country = standardize_country(fields[country_col].strip())
-            else:
-                for col, field in enumerate(fields):
-                    field = field.strip()
-                    if is_country_like(field):
-                        country = standardize_country(field)
-                        if country:
-                            logger.debug(f"逐行找到国家: {field} -> {country} (第 {col + 1} 列)")
-                            break
+            match = ip_port_pattern.match(line)
+            if match:
+                server = match.group(1).strip('[]')
+                port = int(match.group(4))
+                country = ''
+                if delimiter and country_col != -1:
+                    fields = line.split(delimiter)
+                    if country_col < len(fields):
+                        country = standardize_country(fields[country_col].strip())
+                if is_valid_port(str(port)):
+                    server_port_pairs.append((server, port, country))
+                    logger.debug(f"解析到: {server}:{port}, 国家: {country or '无'}")
+                else:
+                    invalid_lines.append(f"Line {i}: {line} (Invalid port range)")
+                pbar.update(1)
+                continue
 
-            if is_valid_ip(server) and is_valid_port(port_str):
-                server_port_pairs.append((server, int(port_str), country))
-                logger.debug(f"解析到: {server}:{port_str}, 国家: {country or '无'}")
+            if delimiter:
+                fields = line.split(delimiter)
+                if len(fields) < max(ip_col, port_col) + 1:
+                    invalid_lines.append(f"Line {i}: {line} (Too few fields)")
+                    pbar.update(1)
+                    continue
+
+                server = fields[ip_col].strip('[]')
+                port_str = fields[port_col].strip()
+                country = ''
+                if country_col != -1 and country_col < len(fields):
+                    country = standardize_country(fields[country_col].strip())
+                else:
+                    for col, field in enumerate(fields):
+                        field = field.strip()
+                        if is_country_like(field):
+                            country = standardize_country(field)
+                            if country:
+                                logger.debug(f"逐行找到国家: {field} -> {country} (第 {col + 1} 列)")
+                                break
+
+                if is_valid_ip(server) and is_valid_port(port_str):
+                    server_port_pairs.append((server, int(port_str), country))
+                    logger.debug(f"解析到: {server}:{port_str}, 国家: {country or '无'}")
+                else:
+                    invalid_lines.append(f"Line {i}: {line} (Invalid IP or port)")
+                pbar.update(1)
             else:
-                invalid_lines.append(f"Line {i}: {line} (Invalid IP or port)")
-        else:
-            invalid_lines.append(f"Line {i}: {line} (No valid format detected)")
+                invalid_lines.append(f"Line {i}: {line} (No valid format detected)")
+                pbar.update(1)
 
     unique_server_port_pairs = list(dict.fromkeys(server_port_pairs))
     logger.info(f"去重后共 {len(unique_server_port_pairs)} 个 server:port:country 对")
