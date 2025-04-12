@@ -2,12 +2,13 @@ name: Proxy IP Check
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 每天 UTC 时间 00:00 运行
+    - cron: '0 0 * * 0' # 每周日 UTC 时间 00:00 运行
   workflow_dispatch: # 支持手动触发
 
 jobs:
   check-proxy-ip:
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # 作业超时 15 分钟
 
     steps:
       # 检出代码
@@ -30,18 +31,15 @@ jobs:
       - name: Make scripts executable
         run: |
           chmod +x iptest.sh
-          chmod +x iptest || echo "iptest not found, assuming it will be downloaded"
+          chmod +x iptest || echo "iptest not found"
 
-      # 可选：下载 iptest 二进制文件
-      # - name: Download iptest binary
-      #   run: |
-      #     curl -o iptest https://your-binary-url/iptest
-      #     chmod +x iptest
-
-      # 运行脚本
+      # 运行脚本（超时 10 分钟，重试 1 次）
       - name: Run proxy IP check
-        run: |
-          python ip-filter-speedtest-api.py --url-first
+        uses: nick-invision/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 2
+          command: python ip-filter-speedtest-api.py --url-first
 
       # 保存输出文件
       - name: Upload artifacts
@@ -56,11 +54,10 @@ jobs:
 
       # 提交结果到仓库
       - name: Commit and push results
-        if: success()
+        if: always()
         run: |
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
-          # 仅添加存在的文件
           for file in ip.txt ips.txt ip.csv; do
             [ -f "$file" ] && git add "$file"
           done
