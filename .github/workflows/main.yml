@@ -20,12 +20,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 检查 input.csv 是否存在
+      # 检查 input.csv 是否存在并打印内容
       - name: Check for input.csv
         run: |
           if [ ! -f "input.csv" ]; then
-            echo "Error: input.csv not found! Please upload input.csv to the repository."
-            exit 1
+            echo "Warning: input.csv not found, will try URL"
+          else
+            echo "input.csv found, first 5 lines:"
+            head -n 5 input.csv
           fi
 
       # 设置 Python 环境
@@ -40,11 +42,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests charset-normalizer
 
+      # 安装系统依赖（确保 iptest.sh 的依赖）
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl
+
       # 确保测速脚本存在并可执行
       - name: Prepare speedtest script
         run: |
           if [ -f "iptest.sh" ]; then
             chmod +x iptest.sh
+            echo "iptest.sh found and made executable"
           else
             echo "iptest.sh not found!"
             exit 1
@@ -52,11 +61,24 @@ jobs:
 
       # 运行脚本，带重试机制
       - name: Run proxy IP check
+        env:
+          PYTHONUNBUFFERED: 1  # 实时输出日志
         uses: nick-invision/retry@v3
         with:
-          timeout_minutes: 30  # 增加时间，考虑 API 查询
-          max_attempts: 2
-          command: python ip-filter-speedtest-api.py
+          timeout_minutes: 60  # 增加超时时间
+          max_attempts: 3
+          command: python -u ip-filter-speedtest-api.py
+
+      # 调试 ip.txt
+      - name: Debug ip.txt
+        if: always()
+        run: |
+          if [ -f "ip.txt" ]; then
+            echo "ip.txt exists, content:"
+            cat ip.txt
+          else
+            echo "ip.txt not found!"
+          fi
 
       # 上传结果文件
       - name: Upload artifacts
@@ -70,7 +92,7 @@ jobs:
             country_cache.json
           if-no-files-found: warn
 
-      # （可选）清理缓存文件
+      # 清理缓存文件
       - name: Clean up
         if: always()
         run: |
