@@ -1,5 +1,8 @@
 name: Proxy IP Check
 
+permissions:
+  contents: write  # 授予仓库内容的写权限，允许 git push
+
 on:
   push:
     branches:
