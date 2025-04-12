@@ -1,148 +1,93 @@
-name: Proxy IP Check
+name: IP Speed Test
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
   schedule:
-    - cron: '0 0 * * 0'  # 每周日 UTC 00:00 运行
-  workflow_dispatch:  # 支持手动触发
+    - cron: '0 0 * * 1'  # 每周一 00:00 UTC
+  workflow_dispatch:
 
 jobs:
-  check-proxy-ip:
+  speed-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
 
     steps:
-      # 检出代码
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
 
-      # 检查工作目录
-      - name: Check working directory
-        run: |
-          pwd
-          ls -l
-          touch test.txt && echo "Test" > test.txt && cat test.txt || echo "Failed to write to directory"
-
-      # 检查 input.csv
-      - name: Check for input.csv
-        run: |
-          if [ ! -f "input.csv" ]; then
-            echo "Warning: input.csv not found, will try URL"
-          else
-            echo "input.csv found, encoding:"
-            file input.csv
-            echo "First 5 lines:"
-            head -n 5 input.csv || echo "Failed to read input.csv"
-          fi
-
-      # 设置 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.9'
 
-      # 安装依赖
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests charset-normalizer
-
-      # 确保测速脚本和二进制文件存在并可执行
-      - name: Prepare speedtest script
-        run: |
-          echo "Listing files in directory:"
-          ls -l
-          if [ -f "iptest.sh" ]; then
-            chmod +x iptest.sh
-            ls -l iptest.sh
-          else
-            echo "iptest.sh not found!"
-            exit 1
-          fi
-          if [ -f "iptest" ]; then
-            chmod +x iptest
-            ls -l iptest
-          else
-            echo "iptest binary not found!"
-            exit 1
-          fi
-
-      # 运行脚本，带重试机制
-      - name: Run proxy IP check
-        env:
-          PYTHONUNBUFFERED: 1
-        uses: nick-invision/retry@v3
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
         with:
-          timeout_minutes: 60
-          max_attempts: 3
-          command: python -u ip-filter-speedtest-api.py
-          on_retry_command: |
-            echo "Retrying proxy IP check..."
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
-      # 调试 ip.txt
-      - name: Debug ip.txt
-        if: always()
+      - name: Install Python dependencies
+        run: pip install requests charset-normalizer
+
+      - name: Install system dependencies
         run: |
-          if [ -f "ip.txt" ]; then
-            echo "ip.txt exists, content:"
-            cat ip.txt
+          sudo apt-get update
+          sudo apt-get install -y curl libcurl4-openssl-dev
+
+      - name: Make iptest and iptest.sh executable
+        run: |
+          chmod +x iptest || echo "iptest not found"
+          chmod +x iptest.sh || echo "iptest.sh not found"
+
+      - name: Debug working directory
+        run: |
+          pwd
+          ls -la
+
+      - name: Test speed test URL
+        run: |
+          curl -I "https://speed.cloudflare.com/__down?bytes=1000000"
+
+      - name: Run speed test
+        run: |
+          echo "Start time: $(date)"
+          python3 ip-filter-speedtest-api.py
+          echo "End time: $(date)"
+
+      - name: Debug generated files
+        run: |
+          echo "Current directory: $(pwd)"
+          ls -la
+          if [ -f ip.csv ]; then
+            echo "ip.csv exists, content:"
+            cat ip.csv
           else
-            echo "ip.txt not found!"
+            echo "ip.csv does not exist"
+          fi
+          if [ -f ips.txt ]; then
+            echo "ips.txt exists, content:"
+            cat ips.txt
+          else
+            echo "ips.txt does not exist"
           fi
 
-      # 调试 ip.csv
-      - name: Debug ip.csv
-        if: always()
+      - name: Commit and push
         run: |
-          if [ -f "ip.csv" ]; then
-            echo "ip.csv exists, first 5 lines:"
-            head -n 5 ip.csv
-          else
-            echo "ip.csv not found!"
-          fi
-
-      # 调试 ips.txt
-      - name: Debug ips.txt
-        if: always()
-        run: |
-          if [ -f "ips.txt" ]; then
-            echo "ips.txt exists, first 5 lines:"
-            head -n 5 ips.txt
-          else
-            echo "ips.txt not found!"
-          fi
-
-      # 提交并推送生成的文件
-      - name: Commit and push generated files
-        if: always()
-        run: |
+          echo "Start time: $(date)"
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-          git add ip.txt ip.csv ips.txt || echo "No files to add"
-          git status
-          git diff --staged
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update generated files: ip.txt, ip.csv, ips.txt [skip ci]"
-            git push origin main
+          if [ -f ip.csv ]; then
+            git add ip.csv
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # 上传结果文件
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: proxy-ip-results
-          path: |
-            ip.txt
-            ip.csv
-            ips.txt
-          if-no-files-found: warn
+          if [ -f ips.txt ]; then
+            git add ips.txt
+          fi
+          if git diff --staged --quiet; then
+            echo "No changes in ip.csv or ips.txt, skipping commit"
+          else
+            git commit -m "Update speed test results and ips.txt"
+            git push
+          fi
+          echo "End time: $(date)"
