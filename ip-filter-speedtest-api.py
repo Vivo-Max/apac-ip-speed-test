@@ -11,17 +11,19 @@ import time
 import json
 from typing import List, Tuple, Dict
 from collections import defaultdict
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from charset_normalizer import detect
 
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.FileHandler("speedtest.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # 启用 debug 日志
 
 # 配置
 IP_LIST_FILE = "ip.txt"
@@ -77,7 +79,7 @@ COUNTRY_LABELS = {
     'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
 }
 
-# 非标准国家名称映射（扩展）
+# 非标准国家名称映射
 COUNTRY_ALIASES = {
     'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'KOREA, REPUBLIC OF': 'KR',
     'HONG KONG': 'HK', 'HONGKONG': 'HK', 'HK SAR': 'HK',
@@ -101,6 +103,15 @@ COUNTRY_ALIASES = {
     'NORTH KOREA': 'KP', 'KOREA, DEMOCRATIC PEOPLE\'S REPUBLIC OF': 'KP', '朝鲜': 'KP'
 }
 
+# 检查依赖
+REQUIRED_PACKAGES = ['requests', 'charset_normalizer']
+
+def check_dependencies():
+    for pkg in REQUIRED_PACKAGES:
+        if not importlib.util.find_spec(pkg):
+            logger.error(f"缺少依赖包: {pkg}，请安装")
+            sys.exit(1)
+
 # 加载国家缓存
 def load_country_cache() -> Dict[str, str]:
     if os.path.exists(COUNTRY_CACHE_FILE):
@@ -118,15 +129,6 @@ def save_country_cache(cache: Dict[str, str]):
             json.dump(cache, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.warning(f"保存国家缓存失败: {e}")
-
-# 检查依赖
-REQUIRED_PACKAGES = ['requests', 'charset_normalizer']
-
-def check_dependencies():
-    for pkg in REQUIRED_PACKAGES:
-        if not importlib.util.find_spec(pkg):
-            logger.error(f"缺少依赖包: {pkg}，请安装")
-            sys.exit(1)
 
 def detect_delimiter(lines: List[str]) -> str:
     """检测 CSV 分隔符"""
@@ -164,10 +166,8 @@ def is_country_like(value: str) -> bool:
     if not value:
         return False
     value_upper = value.upper().strip()
-    # 标准国家代码 [A-Z]{2}
     if re.match(r'^[A-Z]{2}$', value_upper) and value_upper in COUNTRY_LABELS:
         return True
-    # 映射表中的国家名称
     if value_upper in COUNTRY_ALIASES:
         return True
     return False
@@ -176,18 +176,14 @@ def standardize_country(country: str) -> str:
     """标准化国家代码，宽松匹配"""
     if not country:
         return ''
-    # 去除特殊字符，忽略大小写
     country_clean = re.sub(r'[^a-zA-Z\s]', '', country).strip().upper()
-    # 直接匹配标准代码
     if country_clean in COUNTRY_LABELS:
         logger.debug(f"国家代码匹配: {country} -> {country_clean}")
         return country_clean
-    # 映射表
     if country_clean in COUNTRY_ALIASES:
         mapped = COUNTRY_ALIASES[country_clean]
         logger.debug(f"通过映射表转换国家: {country} -> {mapped}")
         return mapped
-    # 尝试模糊匹配（例如 "KOREA (SOUTH)" -> "KOREA SOUTH"）
     country_clean = country_clean.replace(' ', '')
     for alias, code in COUNTRY_ALIASES.items():
         alias_clean = alias.replace(' ', '')
@@ -200,13 +196,12 @@ def standardize_country(country: str) -> str:
 def find_country_column(lines: List[str], delimiter: str) -> Tuple[int, int, int]:
     """无表头时，遍历行列确定国家列"""
     country_col = -1
-    ip_col = 0  # 默认 IP 在第 1 列
-    port_col = 1  # 默认端口在第 2 列
+    ip_col = 0
+    port_col = 1
     sample_lines = [line for line in lines[:5] if line.strip() and not line.startswith('#')]
     if not sample_lines:
         return ip_col, port_col, country_col
 
-    # 统计每列的国家匹配率
     col_matches = defaultdict(int)
     total_rows = len(sample_lines)
     max_cols = max(len(line.split(delimiter)) for line in sample_lines)
@@ -218,11 +213,10 @@ def find_country_column(lines: List[str], delimiter: str) -> Tuple[int, int, int
             if is_country_like(field):
                 col_matches[col] += 1
 
-    # 选择匹配率最高的列
     if col_matches:
         country_col = max(col_matches, key=col_matches.get)
         match_rate = col_matches[country_col] / total_rows
-        if match_rate < 0.5:  # 匹配率低于 50%，不认为是国家列
+        if match_rate < 0.5:
             country_col = -1
         else:
             logger.info(f"通过遍历确定国家列: 第 {country_col + 1} 列 (匹配率: {match_rate:.2%})")
@@ -256,13 +250,11 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
     content = content.replace('\r\n', '\n').replace('\r', '\n')
     lines = content.splitlines()
 
-    # 检测分隔符
     delimiter = detect_delimiter(lines)
     logger.info(f"检测到的分隔符: {delimiter if delimiter else '未检测到，使用正则匹配'}")
     if not delimiter:
         return []
 
-    # 尝试读取表头
     ip_col, port_col, country_col = 0, 1, -1
     lines_to_process = lines
     if lines and lines[0].strip() and not lines[0].startswith('#'):
@@ -343,8 +335,7 @@ def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
     if ip in cache:
         return cache[ip]
     try:
-        # 限速控制：每分钟 45 次，每次请求间隔 60/45 ≈ 1.33 秒
-        time.sleep(1.5)
+        time.sleep(1.5)  # 限速控制
         response = requests.get(f"http://ip-api.com/json/{ip}", timeout=5)
         response.raise_for_status()
         data = response.json()
@@ -359,7 +350,7 @@ def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 429:
             logger.error(f"查询 IP {ip} 国家失败: 429 客户端错误，请求过多")
-            time.sleep(10)  # 等待 10 秒后重试
+            time.sleep(10)
             return get_country_from_ip(ip, cache)
         logger.error(f"查询 IP {ip} 国家失败: {e}")
         return ''
@@ -482,7 +473,7 @@ def filter_speed_and_deduplicate(csv_file: str):
         reader = csv.reader(f)
         header = next(reader)
         for row in reader:
-            if len(row) < 4:  # 假设包含 IP、端口、延迟、下载速度
+            if len(row) < 4:
                 continue
             key = (row[0], row[1])
             if key not in seen:
@@ -495,7 +486,7 @@ def filter_speed_and_deduplicate(csv_file: str):
         return
 
     try:
-        final_rows.sort(key=lambda x: float(x[3]) if x[3] else 0.0, reverse=True)
+        final_rows.sort(key=lambda x: float(x[9]) if x[9] else 0.0, reverse=True)  # 第 10 列是 Download Speed MB/s
     except (ValueError, IndexError) as e:
         logger.error(f"按下载速度排序失败: {e}，保持原顺序")
 
@@ -541,7 +532,7 @@ def generate_ips_file(csv_file: str):
         label = f"{emoji}{name}-{country_count[country]}"
         labeled_nodes.append((ip, port, label))
 
-    with open(IPS_FILE, "w", encoding="utf-8") as f:
+    with open(IPS_FILE, "w", encoding="utf-8-sig") as f:
         for ip, port, label in labeled_nodes:
             f.write(f"{ip}:{port}#{label}\n")
     logger.info(f"生成 {IPS_FILE}，包含 {len(labeled_nodes)} 个节点")
@@ -550,8 +541,7 @@ def generate_ips_file(csv_file: str):
 def main():
     """主函数"""
     check_dependencies()
-    
-    # 直接处理本地 input.csv
+
     if not os.path.exists(INPUT_FILE):
         logger.error(f"输入文件 {INPUT_FILE} 不存在，请确保已上传 input.csv")
         sys.exit(1)
