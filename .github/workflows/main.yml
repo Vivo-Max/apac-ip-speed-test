@@ -8,49 +8,69 @@ on:
     branches:
       - main
   schedule:
-    - cron: '0 0 * * *'  # 每天 UTC 时间 00:00 运行
-  workflow_dispatch:  # 允许手动触发
+    - cron: '0 0 * * *'  # 每天 UTC 00:00 运行
+  workflow_dispatch:  # 支持手动触发
 
 jobs:
-  proxy-ip-check:
+  check-proxy-ip:
     runs-on: ubuntu-latest
 
     steps:
+      # 检出代码
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
+      # 设置 Python 环境
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
+      # 安装依赖
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install requests charset-normalizer
 
-      - name: Make iptest.sh executable
+      # 确保测速脚本存在并可执行
+      - name: Prepare speedtest script
         run: |
-          chmod +x iptest.sh
-          chmod +x iptest
+          if [ -f "iptest.sh" ]; then
+            chmod +x iptest.sh
+          else
+            echo "iptest.sh not found!"
+            exit 1
+          fi
 
+      # 下载 input.csv（如果需要）
+      - name: Download input.csv
+        run: |
+          if [ ! -f "input.csv" ]; then
+            curl -L -o input.csv "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"
+          fi
+
+      # 运行脚本，带重试机制
       - name: Run proxy IP check
-        env:
-          SPEEDTEST_THREADS: 10
-          SPEED_LIMIT: 5
-          TEST_URL: "speed.cloudflare.com/__down?bytes=50000000"
-          MAX_NODES: 200
-        run: |
-          echo "Start time: $(date)"
-          echo "开始时间: $(date)"
-          python3 ip-filter-speedtest-api.py
-          echo "结束时间: $(date)"
+        uses: nick-invision/retry@v3
+        with:
+          timeout_minutes: 30  # 增加时间，考虑 API 查询
+          max_attempts: 2
+          command: python ip-filter-speedtest-api.py
 
-      - name: Upload results
-        uses: actions/upload-artifact@v3
+      # 上传结果文件
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: proxy-ip-results
           path: |
             ip.txt
             ip.csv
             ips.txt
-            speedtest.log
+            country_cache.json
+          if-no-files-found: warn
+
+      # （可选）清理缓存文件
+      - name: Clean up
+        if: always()
+        run: |
+          rm -f country_cache.json
