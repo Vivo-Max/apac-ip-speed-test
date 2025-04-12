@@ -51,7 +51,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests charset-normalizer
+          pip install requests
 
       # 安装系统依赖
       - name: Install system dependencies
@@ -59,15 +59,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl wget
 
-      # 确保测速脚本存在并可执行
+      # 确保测速脚本和二进制文件存在并可执行
       - name: Prepare speedtest script
         run: |
+          echo "Listing files in directory:"
+          ls -l
+          # 检查 iptest.sh
           if [ -f "iptest.sh" ]; then
             chmod +x iptest.sh
             ls -l iptest.sh
             ./iptest.sh --version || echo "iptest.sh failed to run, will attempt in main script"
           else
             echo "iptest.sh not found!"
+            exit 1
+          fi
+          # 检查 iptest 二进制文件
+          if [ -f "iptest" ]; then
+            chmod +x iptest
+            ls -l iptest
+            ./iptest --version || echo "iptest binary failed to run, will attempt in main script"
+          else
+            echo "iptest binary not found! Please ensure the iptest binary is added to the repository."
             exit 1
           fi
 
