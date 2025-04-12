@@ -42,13 +42,6 @@ jobs:
             exit 1
           fi
 
-      # 下载 input.csv（如果需要）
-      - name: Download input.csv
-        run: |
-          if [ ! -f "input.csv" ]; then
-            curl -L -o input.csv "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"
-          fi
-
       # 运行脚本，带重试机制
       - name: Run proxy IP check
         uses: nick-invision/retry@v3
