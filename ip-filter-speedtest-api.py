@@ -624,7 +624,6 @@ def run_speed_test() -> str:
             "-speedlimit=10",
             "-url=speed.cloudflare.com/__down?bytes=50000000",
             "-max=200",
-            "-timeout=30",
             f"-outfile={FINAL_CSV}"
         ]
         logger.info(f"运行测速命令: {' '.join(cmd)}")
