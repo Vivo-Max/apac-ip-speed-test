@@ -594,12 +594,13 @@ def run_speed_test() -> str:
         return None
 
 def filter_speed_and_deduplicate(csv_file: str):
-    """去重 ip.csv 并按下载速度降序排序"""
+    """去重 ip.csv 并按下载速度降序排序，处理非数值速度值"""
     if not os.path.exists(csv_file):
         logger.info(f"{csv_file} 不存在，跳过去重")
         return
     seen = set()
     final_rows = []
+    invalid_speed_rows = []
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader)
@@ -610,10 +611,19 @@ def filter_speed_and_deduplicate(csv_file: str):
             if key not in seen:
                 seen.add(key)
                 final_rows.append(row)
+                # 检查下载速度是否为有效浮点数
+                speed = row[3].strip()
+                try:
+                    float(speed)
+                except ValueError:
+                    invalid_speed_rows.append((row[0], row[1], speed))
+                    row[3] = '0.0'  # 将无效速度设为 0.0
     if not final_rows:
         logger.info(f"没有符合条件的节点，删除 {csv_file}")
         os.remove(csv_file)
         return
+    if invalid_speed_rows:
+        logger.warning(f"发现 {len(invalid_speed_rows)} 个无效下载速度值: {invalid_speed_rows[:5]}")
     try:
         final_rows.sort(key=lambda x: float(x[3]) if x[3] else 0.0, reverse=True)
     except (ValueError, IndexError) as e:
@@ -631,6 +641,7 @@ def generate_ips_file(csv_file: str):
         return
     country_cache = load_country_cache()
     final_nodes = []
+    filtered_out = []
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
         next(reader)
@@ -645,7 +656,10 @@ def generate_ips_file(csv_file: str):
             if country in DESIRED_COUNTRIES:
                 final_nodes.append((ip, int(port), country))
             else:
+                filtered_out.append((ip, port, country))
                 logger.debug(f"过滤掉 {ip}:{port}，国家 {country} 不在 {DESIRED_COUNTRIES}")
+    if filtered_out:
+        logger.info(f"过滤掉 {len(filtered_out)} 个不符合 {DESIRED_COUNTRIES} 的节点: {filtered_out[:5]}")
     if not final_nodes:
         logger.info(f"没有符合条件的节点，跳过生成 {IPS_FILE}")
         return
