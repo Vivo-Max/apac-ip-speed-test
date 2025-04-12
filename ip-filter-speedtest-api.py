@@ -7,7 +7,9 @@ import logging
 import sys
 import threading
 import importlib.util
-from typing import List, Tuple
+import time
+import json
+from typing import List, Tuple, Dict
 from collections import defaultdict
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -28,6 +30,7 @@ IPS_FILE = "ips.txt"
 SPEEDTEST_SCRIPT = "./iptest.sh"
 FINAL_CSV = "ip.csv"
 INPUT_FILE = "input.csv"
+COUNTRY_CACHE_FILE = "country_cache.json"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9",
@@ -81,8 +84,28 @@ COUNTRY_ALIASES = {
     'UNITED STATES': 'US', 'USA': 'US', 'UNITED KINGDOM': 'GB', 'UK': 'GB', '英国': 'GB',
     'JAPAN': 'JP', 'JPN': 'JP', 'TAIWAN': 'TW', 'TWN': 'TW', 'SINGAPORE': 'SG',
     'FRANCE': 'FR', 'GERMANY': 'DE', 'NETHERLANDS': 'NL', 'AUSTRALIA': 'AU',
-    'CANADA': 'CA', 'BRAZIL': 'BR', 'RUSSIA': 'RU', 'INDIA': 'IN', 'CHINA': 'CN'
+    'CANADA': 'CA', 'BRAZIL': 'BR', 'RUSSIA': 'RU', 'INDIA': 'IN', 'CHINA': 'CN',
+    'KOREA, REPUBLIC OF': 'KR', 'REPUBLIC OF KOREA': 'KR', 'VIET NAM': 'VN',
+    'THAILAND': 'TH', 'BURMA': 'MM', 'MYANMAR': 'MM', 'NORTH KOREA': 'KP'
 }
+
+# 加载国家缓存
+def load_country_cache() -> Dict[str, str]:
+    if os.path.exists(COUNTRY_CACHE_FILE):
+        try:
+            with open(COUNTRY_CACHE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"加载国家缓存失败: {e}")
+    return {}
+
+# 保存国家缓存
+def save_country_cache(cache: Dict[str, str]):
+    try:
+        with open(COUNTRY_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"保存国家缓存失败: {e}")
 
 # 检查依赖
 REQUIRED_PACKAGES = ['requests', 'charset_normalizer']
@@ -128,25 +151,30 @@ def is_country_like(value: str) -> bool:
     """判断字段是否像国家代码或名称"""
     if not value:
         return False
-    value_upper = value.upper()
+    value_upper = value.upper().strip()
     # 标准国家代码 [A-Z]{2}
-    if re.match(r'^[A-Z]{2}$', value_upper) and value_upper in DESIRED_COUNTRIES:
+    if re.match(r'^[A-Z]{2}$', value_upper) and value_upper in COUNTRY_LABELS:
         return True
     # 映射表中的国家名称
     if value_upper in COUNTRY_ALIASES:
         return True
-    # 常见国家名称（大小写不敏感）
-    return value_upper in [k for k in COUNTRY_ALIASES.keys()]
+    return False
 
 def standardize_country(country: str) -> str:
-    """标准化国家代码"""
+    """标准化国家代码，宽松匹配"""
     if not country:
         return ''
-    country_upper = country.upper()
-    if country_upper in DESIRED_COUNTRIES:
-        return country_upper
-    if country_upper in COUNTRY_ALIASES:
-        return COUNTRY_ALIASES[country_upper]
+    country_clean = country.strip().upper()
+    # 直接匹配标准代码
+    if country_clean in COUNTRY_LABELS:
+        logger.debug(f"国家代码匹配: {country} -> {country_clean}")
+        return country_clean
+    # 映射表
+    if country_clean in COUNTRY_ALIASES:
+        mapped = COUNTRY_ALIASES[country_clean]
+        logger.debug(f"通过映射表转换国家: {country} -> {mapped}")
+        return mapped
+    logger.warning(f"未识别的国家代码: {country}")
     return ''
 
 def find_country_column(lines: List[str], delimiter: str) -> Tuple[int, int, int]:
@@ -409,11 +437,13 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
 
     return unique_server_port_pairs
 
-def get_country_from_ip(ip: str, cache: dict) -> str:
-    """通过 IP 查询国家代码，带缓存"""
+def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
+    """通过 IP 查询国家代码，带缓存和限速控制"""
     if ip in cache:
         return cache[ip]
     try:
+        # 限速控制：每分钟 45 次，每次请求间隔 60/45 ≈ 1.33 秒
+        time.sleep(1.5)
         response = requests.get(f"http://ip-api.com/json/{ip}", timeout=5)
         response.raise_for_status()
         data = response.json()
@@ -425,6 +455,13 @@ def get_country_from_ip(ip: str, cache: dict) -> str:
         else:
             logger.warning(f"IP {ip} 无国家代码")
             return ''
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:
+            logger.error(f"查询 IP {ip} 国家失败: 429 客户端错误，请求过多")
+            time.sleep(10)  # 等待 10 秒后重试
+            return get_country_from_ip(ip, cache)
+        logger.error(f"查询 IP {ip} 国家失败: {e}")
+        return ''
     except Exception as e:
         logger.error(f"查询 IP {ip} 国家失败: {e}")
         return ''
@@ -435,7 +472,7 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
         logger.error(f"无有效节点，无法生成 {IP_LIST_FILE}")
         return None
 
-    country_cache = {}
+    country_cache = load_country_cache()
     filtered_ip_ports = []
     api_queries = 0
     logger.info(f"开始筛选 {len(ip_ports)} 个节点的国家")
@@ -444,14 +481,15 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
             filtered_ip_ports.append((ip, port))
             logger.debug(f"使用数据源国家: {ip}:{port}, 国家: {country}")
         else:
-            country = get_country_from_ip(ip, country_cache)
+            country_from_api = get_country_from_ip(ip, country_cache)
             api_queries += 1
-            if country in DESIRED_COUNTRIES:
+            if country_from_api in DESIRED_COUNTRIES:
                 filtered_ip_ports.append((ip, port))
-                logger.debug(f"使用 API 国家: {ip}:{port}, 国家: {country}")
+                logger.debug(f"使用 API 国家: {ip}:{port}, 国家: {country_from_api}")
             else:
-                logger.debug(f"过滤掉 {ip}:{port}, 国家: {country or '无'}")
+                logger.debug(f"过滤掉 {ip}:{port}, 国家: {country_from_api or '无'}")
     logger.info(f"API 查询次数: {api_queries}")
+    save_country_cache(country_cache)
 
     if not filtered_ip_ports:
         logger.error(f"无符合 {DESIRED_COUNTRIES} 的节点，无法生成 {IP_LIST_FILE}")
@@ -572,7 +610,7 @@ def generate_ips_file(csv_file: str):
         logger.info(f"{csv_file} 不存在，跳过生成 {IPS_FILE}")
         return
 
-    country_cache = {}
+    country_cache = load_country_cache()
     final_nodes = []
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
@@ -606,16 +644,18 @@ def generate_ips_file(csv_file: str):
         for ip, port, label in labeled_nodes:
             f.write(f"{ip}:{port}#{label}\n")
     logger.info(f"生成 {IPS_FILE}，包含 {len(labeled_nodes)} 个节点")
+    save_country_cache(country_cache)
 
-def main(prefer_url: bool = False):
+def main():
     """主函数"""
     check_dependencies()
     ip_ports = []
-    if not prefer_url and os.path.exists(INPUT_FILE):
+    # 优先使用本地文件 input.csv
+    if os.path.exists(INPUT_FILE):
         logger.info(f"尝试从本地文件 {INPUT_FILE} 获取 IP")
         ip_ports = extract_ip_ports_from_file(INPUT_FILE)
     else:
-        logger.info(f"尝试从 URL 获取 IP: {URL}")
+        logger.info(f"本地文件 {INPUT_FILE} 不存在，尝试从 URL 获取 IP: {URL}")
         ip_ports = fetch_and_extract_ip_ports_from_url(URL)
 
     if not ip_ports:
@@ -636,8 +676,4 @@ def main(prefer_url: bool = False):
     generate_ips_file(csv_file)
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="IP Filter and Speed Test Script")
-    parser.add_argument('--url-first', action='store_true', help="优先使用 URL 获取 IP")
-    args = parser.parse_args()
-    main(prefer_url=args.url_first)
+    main()
