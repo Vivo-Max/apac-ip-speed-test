@@ -4,12 +4,20 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'input.csv'
+      - 'ip-filter-speedtest-api.py'
+      - 'iptest.sh'
   pull_request:
     branches:
       - main
+    paths:
+      - 'input.csv'
+      - 'ip-filter-speedtest-api.py'
+      - 'iptest.sh'
   schedule:
-    - cron: '0 0 * * *'  # 每天 UTC 时间 00:00 运行
-  workflow_dispatch:  # 允许手动触发
+    - cron: '0 0 * * 1'  # 每周一 UTC 时间 00:00 运行
+  workflow_dispatch:
 
 jobs:
   proxy-ip-check:
@@ -32,14 +40,23 @@ jobs:
       - name: Make iptest.sh executable
         run: |
           chmod +x iptest.sh
-          chmod +x iptest
+          chmod +x iptest || echo "iptest binary not found"
 
       - name: Run proxy IP check
+        timeout-minutes: 10
         run: |
           echo "Start time: $(date)"
           echo "开始时间: $(date)"
           python3 ip-filter-speedtest-api.py
           echo "结束时间: $(date)"
+
+      - name: Commit and push generated files
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add ip.txt ip.csv ips.txt speedtest.log country_cache.json
+          git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
+          git push || echo "No changes to push"
 
       - name: Upload results
         if: always()
