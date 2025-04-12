@@ -398,7 +398,7 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     filtered_ip_ports = []
     api_queries = 0
     logger.info(f"开始筛选 {len(ip_ports)} 个节点的国家")
- HOME: for ip, port, country in ip_ports:
+    for ip, port, country in ip_ports:
         if country and country in DESIRED_COUNTRIES:
             filtered_ip_ports.append((ip, port))
             logger.debug(f"使用数据源国家: {ip}:{port}, 国家: {country}")
