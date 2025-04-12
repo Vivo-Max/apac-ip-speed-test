@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 配置
-URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"
+URL = "https://raw.githubusercontent.com/gxiaobani2024/api/refs/heads/main/proxyip%20.csv"
 IP_LIST_FILE = "ip.txt"
 IPS_FILE = "ips.txt"
 SPEEDTEST_SCRIPT = "./iptest.sh"
@@ -94,7 +94,9 @@ def load_country_cache() -> Dict[str, str]:
     if os.path.exists(COUNTRY_CACHE_FILE):
         try:
             with open(COUNTRY_CACHE_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                cache = json.load(f)
+                logger.info(f"加载缓存: {len(cache)} 条记录")
+                return cache
         except Exception as e:
             logger.warning(f"加载国家缓存失败: {e}")
     return {}
@@ -104,6 +106,7 @@ def save_country_cache(cache: Dict[str, str]):
     try:
         with open(COUNTRY_CACHE_FILE, 'w', encoding='utf-8') as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
+        logger.info(f"保存缓存: {len(cache)} 条记录")
     except Exception as e:
         logger.warning(f"保存国家缓存失败: {e}")
 
@@ -152,10 +155,8 @@ def is_country_like(value: str) -> bool:
     if not value:
         return False
     value_upper = value.upper().strip()
-    # 标准国家代码 [A-Z]{2}
     if re.match(r'^[A-Z]{2}$', value_upper) and value_upper in COUNTRY_LABELS:
         return True
-    # 映射表中的国家名称
     if value_upper in COUNTRY_ALIASES:
         return True
     return False
@@ -165,28 +166,23 @@ def standardize_country(country: str) -> str:
     if not country:
         return ''
     country_clean = country.strip().upper()
-    # 直接匹配标准代码
+    logger.debug(f"标准化国家: 输入={country}, 转换为={country_clean}")
     if country_clean in COUNTRY_LABELS:
-        logger.debug(f"国家代码匹配: {country} -> {country_clean}")
         return country_clean
-    # 映射表
     if country_clean in COUNTRY_ALIASES:
-        mapped = COUNTRY_ALIASES[country_clean]
-        logger.debug(f"通过映射表转换国家: {country} -> {mapped}")
-        return mapped
-    logger.warning(f"未识别的国家代码: {country}")
+        return COUNTRY_ALIASES[country_clean]
+    logger.warning(f"未识别的国家: {country}")
     return ''
 
 def find_country_column(lines: List[str], delimiter: str) -> Tuple[int, int, int]:
     """无表头时，遍历行列确定国家列"""
     country_col = -1
-    ip_col = 0  # 默认 IP 在第 1 列
-    port_col = 1  # 默认端口在第 2 列
+    ip_col = 0
+    port_col = 1
     sample_lines = [line for line in lines[:5] if line.strip() and not line.startswith('#')]
     if not sample_lines:
         return ip_col, port_col, country_col
 
-    # 统计每列的国家匹配率
     col_matches = defaultdict(int)
     total_rows = len(sample_lines)
     max_cols = max(len(line.split(delimiter)) for line in sample_lines)
@@ -198,11 +194,10 @@ def find_country_column(lines: List[str], delimiter: str) -> Tuple[int, int, int
             if is_country_like(field):
                 col_matches[col] += 1
 
-    # 选择匹配率最高的列
     if col_matches:
         country_col = max(col_matches, key=col_matches.get)
         match_rate = col_matches[country_col] / total_rows
-        if match_rate < 0.5:  # 匹配率低于 50%，不认为是国家列
+        if match_rate < 0.5:
             country_col = -1
         else:
             logger.info(f"通过遍历确定国家列: 第 {country_col + 1} 列 (匹配率: {match_rate:.2%})")
@@ -225,7 +220,7 @@ def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int, str]]:
             raw_content += chunk
         logger.info(f"从 URL 获取内容: {url} (长度: {len(raw_content)} 字节)")
     except Exception as e:
-        logger.error(f"获取内容失败: {e}")
+        logger.error(f"获取 URL 内容失败: {e}")
         return []
 
     result = detect(raw_content)
@@ -242,126 +237,11 @@ def fetch_and_extract_ip_ports_from_url(url: str) -> List[Tuple[str, int, str]]:
     content = content.replace('\r\n', '\n').replace('\r', '\n')
     lines = content.splitlines()
 
-    # 检测分隔符
     delimiter = detect_delimiter(lines)
     logger.info(f"检测到的分隔符: {delimiter if delimiter else '未检测到，使用正则匹配'}")
     if not delimiter:
         return []
 
-    # 尝试读取表头
-    ip_col, port_col, country_col = 0, 1, -1  # 默认值
-    lines_to_process = lines
-    if lines and lines[0].strip() and not lines[0].startswith('#'):
-        header = lines[0].strip().split(delimiter)
-        # 查找 IP、端口、国家列
-        for idx, col in enumerate(header):
-            col_lower = col.strip().lower()
-            if col_lower in ['ip', 'address', 'ip地址']:
-                ip_col = idx
-            elif col_lower in ['port', '端口', '端口口']:
-                port_col = idx
-            elif col_lower in ['country', '国家', 'code', 'nation', 'location']:
-                country_col = idx
-        if country_col != -1:
-            logger.info(f"通过表头确定国家列: 第 {country_col + 1} 列 ({header[country_col]})")
-            lines_to_process = lines[1:]  # 跳过表头
-        else:
-            logger.info("表头中未找到国家列，尝试遍历行列")
-            ip_col, port_col, country_col = find_country_column(lines, delimiter)
-
-    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})')
-
-    for i, line in enumerate(lines_to_process):
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-
-        # 优先使用正则匹配 IP 和端口
-        match = ip_port_pattern.match(line)
-        if match:
-            server = match.group(1).strip('[]')
-            port = int(match.group(4))
-            country = ''
-            if country_col != -1:
-                fields = line.split(delimiter)
-                if country_col < len(fields):
-                    country = standardize_country(fields[country_col].strip())
-            if is_valid_port(str(port)):
-                server_port_pairs.append((server, port, country))
-                logger.debug(f"解析到: {server}:{port}, 国家: {country or '无'}")
-            else:
-                invalid_lines.append(f"Line {i}: {line} (Invalid port range)")
-            continue
-
-        # 按分隔符解析
-        fields = line.split(delimiter)
-        if len(fields) < max(ip_col, port_col) + 1:
-            invalid_lines.append(f"Line {i}: {line} (Too few fields)")
-            continue
-
-        server = fields[ip_col].strip('[]')
-        port_str = fields[port_col].strip()
-        country = ''
-        if country_col != -1 and country_col < len(fields):
-            country = standardize_country(fields[country_col].strip())
-        else:
-            # 逐行遍历查找国家（列不固定时）
-            for col, field in enumerate(fields):
-                field = field.strip()
-                if is_country_like(field):
-                    country = standardize_country(field)
-                    if country:
-                        logger.debug(f"逐行找到国家: {field} -> {country} (第 {col + 1} 列)")
-                        break
-
-        if is_valid_ip(server) and is_valid_port(port_str):
-            server_port_pairs.append((server, int(port_str), country))
-            logger.debug(f"解析到: {server}:{port_str}, 国家: {country or '无'}")
-        else:
-            invalid_lines.append(f"Line {i}: {line} (Invalid IP or port)")
-
-    unique_server_port_pairs = list(dict.fromkeys(server_port_pairs))
-    logger.info(f"去重后共 {len(unique_server_port_pairs)} 个 server:port:country 对")
-
-    if invalid_lines:
-        logger.info(f"发现 {len(invalid_lines)} 个无效条目: {invalid_lines[:5]}")
-
-    return unique_server_port_pairs
-
-def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
-    """从本地文件提取 IP、端口和国家（若存在），去重"""
-    server_port_pairs = []
-    invalid_lines = []
-
-    if not os.path.exists(file_path):
-        logger.error(f"文件 {file_path} 不存在")
-        return []
-
-    with open(file_path, "rb") as f:
-        raw_data = f.read()
-    result = detect(raw_data)
-    encoding = result.get("encoding", "utf-8")
-    logger.info(f"检测到文件 {file_path} 的编码: {encoding}")
-
-    try:
-        content = raw_data.decode(encoding)
-    except UnicodeDecodeError as e:
-        logger.error(f"无法以 {encoding} 解码文件 {file_path}: {e}")
-        return []
-
-    logger.info(f"从本地文件 {file_path} 读取内容 (长度: {len(content)} 字节)")
-    logger.debug(f"文件 {file_path} 内容前5行: {content.splitlines()[:5]}")
-
-    content = content.replace('\r\n', '\n').replace('\r', '\n')
-    lines = content.splitlines()
-
-    # 检测分隔符
-    delimiter = detect_delimiter(lines)
-    logger.info(f"检测到的分隔符: {delimiter if delimiter else '未检测到，使用正则匹配'}")
-    if not delimiter:
-        return []
-
-    # 尝试读取表头
     ip_col, port_col, country_col = 0, 1, -1
     lines_to_process = lines
     if lines and lines[0].strip() and not lines[0].startswith('#'):
@@ -430,8 +310,115 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
             invalid_lines.append(f"Line {i}: {line} (Invalid IP or port)")
 
     unique_server_port_pairs = list(dict.fromkeys(server_port_pairs))
+    logger.info(f"从 URL 解析到 {len(server_port_pairs)} 个原始记录")
     logger.info(f"去重后共 {len(unique_server_port_pairs)} 个 server:port:country 对")
+    if invalid_lines:
+        logger.info(f"发现 {len(invalid_lines)} 个无效条目: {invalid_lines[:5]}")
 
+    return unique_server_port_pairs
+
+def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
+    """从本地文件提取 IP、端口和国家（若存在），去重"""
+    server_port_pairs = []
+    invalid_lines = []
+
+    if not os.path.exists(file_path):
+        logger.error(f"文件 {file_path} 不存在")
+        return []
+
+    with open(file_path, "rb") as f:
+        raw_data = f.read()
+    result = detect(raw_data)
+    encoding = result.get("encoding", "utf-8")
+    logger.info(f"检测到文件 {file_path} 的编码: {encoding}")
+
+    try:
+        content = raw_data.decode(encoding)
+    except UnicodeDecodeError as e:
+        logger.error(f"无法以 {encoding} 解码文件 {file_path}: {e}")
+        return []
+
+    logger.info(f"从本地文件 {file_path} 读取内容 (长度: {len(content)} 字节)")
+    logger.debug(f"文件 {file_path} 内容前5行: {content.splitlines()[:5]}")
+
+    content = content.replace('\r\n', '\n').replace('\r', '\n')
+    lines = content.splitlines()
+
+    delimiter = detect_delimiter(lines)
+    logger.info(f"检测到的分隔符: {delimiter if delimiter else '未检测到，使用正则匹配'}")
+    if not delimiter:
+        return []
+
+    ip_col, port_col, country_col = 0, 1, -1
+    lines_to_process = lines
+    if lines and lines[0].strip() and not lines[0].startswith('#'):
+        header = lines[0].strip().split(delimiter)
+        for idx, col in enumerate(header):
+            col_lower = col.strip().lower()
+            if col_lower in ['ip', 'address', 'ip地址']:
+                ip_col = idx
+            elif col_lower in ['port', '端口', '端口口']:
+                port_col = idx
+            elif col_lower in ['country', '国家', 'code', 'nation', 'location']:
+                country_col = idx
+        if country_col != -1:
+            logger.info(f"通过表头确定国家列: 第 {country_col + 1} 列 ({header[country_col]})")
+            lines_to_process = lines[1:]
+        else:
+            logger.info("表头中未找到国家列，尝试遍历行列")
+            ip_col, port_col, country_col = find_country_column(lines, delimiter)
+
+    ip_port_pattern = re.compile(r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})')
+
+    for i, line in enumerate(lines_to_process):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+
+        match = ip_port_pattern.match(line)
+        if match:
+            server = match.group(1).strip('[]')
+            port = int(match.group(4))
+            country = ''
+            if country_col != -1:
+                fields = line.split(delimiter)
+                if country_col < len(fields):
+                    country = standardize_country(fields[country_col].strip())
+            if is_valid_port(str(port)):
+                server_port_pairs.append((server, port, country))
+                logger.debug(f"解析到: {server}:{port}, 国家: {country or '无'}")
+            else:
+                invalid_lines.append(f"Line {i}: {line} (Invalid port range)")
+            continue
+
+        fields = line.split(delimiter)
+        if len(fields) < max(ip_col, port_col) + 1:
+            invalid_lines.append(f"Line {i}: {line} (Too few fields)")
+            continue
+
+        server = fields[ip_col].strip('[]')
+        port_str = fields[port_col].strip()
+        country = ''
+        if country_col != -1 and country_col < len(fields):
+            country = standardize_country(fields[country_col].strip())
+        else:
+            for col, field in enumerate(fields):
+                field = field.strip()
+                if is_country_like(field):
+                    country = standardize_country(field)
+                    if country:
+                        logger.debug(f"逐行找到国家: {field} -> {country} (第 {col + 1} 列)")
+                        break
+
+        if is_valid_ip(server) and is_valid_port(port_str):
+            server_port_pairs.append((server, int(port_str), country))
+            logger.debug(f"解析到: {server}:{port_str}, 国家: {country or '无'}")
+        else:
+            invalid_lines.append(f"Line {i}: {line} (Invalid IP or port)")
+
+    unique_server_port_pairs = list(dict.fromkeys(server_port_pairs))
+    logger.info(f"从文件解析到 {len(server_port_pairs)} 个原始记录")
+    logger.info(f"去重后共 {len(unique_server_port_pairs)} 个 server:port:country 对")
     if invalid_lines:
         logger.info(f"发现 {len(invalid_lines)} 个无效条目: {invalid_lines[:5]}")
 
@@ -440,10 +427,10 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
 def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
     """通过 IP 查询国家代码，带缓存和限速控制"""
     if ip in cache:
+        logger.debug(f"从缓存获取 IP {ip} 的国家: {cache[ip]}")
         return cache[ip]
     try:
-        # 限速控制：每分钟 45 次，每次请求间隔 60/45 ≈ 1.33 秒
-        time.sleep(1.5)
+        time.sleep(2)  # 增加间隔到 2 秒
         response = requests.get(f"http://ip-api.com/json/{ip}", timeout=5)
         response.raise_for_status()
         data = response.json()
@@ -452,18 +439,17 @@ def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
             cache[ip] = country_code
             logger.debug(f"IP {ip} 国家代码: {country_code}")
             return country_code
-        else:
-            logger.warning(f"IP {ip} 无国家代码")
-            return ''
+        logger.warning(f"IP {ip} 无国家代码")
+        return ''
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 429:
-            logger.error(f"查询 IP {ip} 国家失败: 429 客户端错误，请求过多")
-            time.sleep(10)  # 等待 10 秒后重试
+            logger.error(f"IP {ip} 查询失败: 429 客户端错误，等待 15 秒后重试")
+            time.sleep(15)
             return get_country_from_ip(ip, cache)
-        logger.error(f"查询 IP {ip} 国家失败: {e}")
+        logger.error(f"IP {ip} 查询失败: {e}")
         return ''
     except Exception as e:
-        logger.error(f"查询 IP {ip} 国家失败: {e}")
+        logger.error(f"IP {ip} 查询失败: {e}")
         return ''
 
 def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
@@ -475,12 +461,14 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     country_cache = load_country_cache()
     filtered_ip_ports = []
     api_queries = 0
+    max_api_queries = 40  # 限制最大 API 查询次数
     logger.info(f"开始筛选 {len(ip_ports)} 个节点的国家")
+
     for ip, port, country in ip_ports:
         if country and country in DESIRED_COUNTRIES:
             filtered_ip_ports.append((ip, port))
             logger.debug(f"使用数据源国家: {ip}:{port}, 国家: {country}")
-        else:
+        elif api_queries < max_api_queries:
             country_from_api = get_country_from_ip(ip, country_cache)
             api_queries += 1
             if country_from_api in DESIRED_COUNTRIES:
@@ -488,17 +476,26 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
                 logger.debug(f"使用 API 国家: {ip}:{port}, 国家: {country_from_api}")
             else:
                 logger.debug(f"过滤掉 {ip}:{port}, 国家: {country_from_api or '无'}")
-    logger.info(f"API 查询次数: {api_queries}")
-    save_country_cache(country_cache)
+        else:
+            logger.debug(f"跳过 {ip}:{port}，API 查询已达上限")
 
+    logger.info(f"筛选后得到 {len(filtered_ip_ports)} 个节点，API 查询次数: {api_queries}")
     if not filtered_ip_ports:
         logger.error(f"无符合 {DESIRED_COUNTRIES} 的节点，无法生成 {IP_LIST_FILE}")
+        # 调试模式：保留前 10 个 IP
+        filtered_ip_ports = [(ip, port) for ip, port, _ in ip_ports[:10]]
+        logger.warning(f"调试模式：保留前 10 个 IP 以生成 {IP_LIST_FILE}")
+
+    try:
+        with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
+            for ip, port in filtered_ip_ports:
+                f.write(f"{ip} {port}\n")
+        logger.info(f"生成 {IP_LIST_FILE}，包含 {len(filtered_ip_ports)} 个节点")
+    except Exception as e:
+        logger.error(f"写入 {IP_LIST_FILE} 失败: {e}")
         return None
 
-    with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
-        for ip, port in filtered_ip_ports:
-            f.write(f"{ip} {port}\n")
-    logger.info(f"生成 {IP_LIST_FILE}，包含 {len(filtered_ip_ports)} 个节点")
+    save_country_cache(country_cache)
     return IP_LIST_FILE
 
 def run_speed_test() -> str:
@@ -581,7 +578,7 @@ def filter_speed_and_deduplicate(csv_file: str):
         reader = csv.reader(f)
         header = next(reader)
         for row in reader:
-            if len(row) < 4:  # 假设包含 IP、端口、延迟、下载速度
+            if len(row) < 4:
                 continue
             key = (row[0], row[1])
             if key not in seen:
@@ -614,7 +611,7 @@ def generate_ips_file(csv_file: str):
     final_nodes = []
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
-        next(reader)  # 跳过头部
+        next(reader)
         for row in reader:
             if len(row) < 2:
                 continue
@@ -649,15 +646,16 @@ def generate_ips_file(csv_file: str):
 def main():
     """主函数"""
     check_dependencies()
+    logger.info("开始执行主流程")
     ip_ports = []
-    # 优先使用本地文件 input.csv
     if os.path.exists(INPUT_FILE):
-        logger.info(f"尝试从本地文件 {INPUT_FILE} 获取 IP")
+        logger.info(f"从 {INPUT_FILE} 获取 IP")
         ip_ports = extract_ip_ports_from_file(INPUT_FILE)
     else:
         logger.info(f"本地文件 {INPUT_FILE} 不存在，尝试从 URL 获取 IP: {URL}")
         ip_ports = fetch_and_extract_ip_ports_from_url(URL)
 
+    logger.info(f"获取到 {len(ip_ports)} 个 IP 记录")
     if not ip_ports:
         logger.error("未获取到有效的 IP 和端口")
         sys.exit(1)
