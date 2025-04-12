@@ -1,50 +1,83 @@
-import speedtest
-import csv
+name: Proxy IP Check
 
-def run_speed_test() -> str:
-    """使用 speedtest-cli 进行测速"""
-    if not os.path.exists(IP_LIST_FILE):
-        logger.error(f"IP 列表文件 {IP_LIST_FILE} 不存在")
-        return None
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '0 0 * * *'  # 每天 UTC 00:00 运行
+  workflow_dispatch:  # 支持手动触发
 
-    # 读取 IP 和端口
-    servers = []
-    with open(IP_LIST_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                ip, port = line.strip().split()
-                servers.append((ip, int(port)))
+jobs:
+  check-proxy-ip:
+    runs-on: ubuntu-latest
 
-    # 初始化 speedtest
-    st = speedtest.Speedtest()
-    results = []
+    steps:
+      # 检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    for ip, port in servers[:200]:  # 限制最大 200 个节点
-        try:
-            logger.info(f"测速 {ip}:{port}")
-            # 配置代理（如果需要）
-            st.download_url = "speed.cloudflare.com/__down?bytes=50000000"
-            st.download()
-            download_speed = st.results.download / 1_000_000  # 转换为 Mbps
-            if download_speed < 10:  # 速度下限 10 Mbps
-                logger.debug(f"{ip}:{port} 速度 {download_speed:.2f} Mbps，低于 10 Mbps，过滤")
-                continue
-            latency = st.results.ping  # 延迟（ms）
-            results.append([ip, port, latency, download_speed])
-            logger.info(f"{ip}:{port} 速度: {download_speed:.2f} Mbps, 延迟: {latency:.2f} ms")
-        except Exception as e:
-            logger.error(f"测速 {ip}:{port} 失败: {e}")
-            continue
+      # 检查 input.csv 是否存在
+      - name: Check for input.csv
+        run: |
+          if [ ! -f "input.csv" ]; then
+            echo "Error: input.csv not found! Please upload input.csv to the repository."
+            exit 1
+          fi
 
-    if not results:
-        logger.error("无有效测速结果")
-        return None
+      # 设置 Python 环境
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-    # 保存结果到 ip.csv
-    with open(FINAL_CSV, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["IP", "Port", "Latency(ms)", "Download(Mbps)"])
-        writer.writerows(results)
+      # 安装依赖
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests charset-normalizer
 
-    logger.info(f"测速完成，结果保存到 {FINAL_CSV}")
-    return FINAL_CSV
+      # 确保测速工具存在并可执行
+      - name: Prepare speedtest script
+        run: |
+          if [ -f "iptest.sh" ]; then
+            chmod +x iptest.sh
+          else
+            echo "iptest.sh not found!"
+            exit 1
+          fi
+          if [ -f "iptest" ]; then
+            chmod +x iptest
+          else
+            echo "iptest binary not found!"
+            exit 1
+          fi
+
+      # 运行脚本，带重试机制
+      - name: Run proxy IP check
+        uses: nick-invision/retry@v3
+        with:
+          timeout_minutes: 30
+          max_attempts: 2
+          command: python ip-filter-speedtest-api.py
+
+      # 上传结果文件
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-ip-results
+          path: |
+            ip.txt
+            ip.csv
+            ips.txt
+            country_cache.json
+          if-no-files-found: warn
+
+      # 清理缓存文件
+      - name: Clean up
+        if: always()
+        run: |
+          rm -f country_cache.json
