@@ -1,8 +1,6 @@
 name: Proxy IP Check
-
 permissions:
   contents: write
-
 on:
   push:
     branches:
@@ -21,37 +19,33 @@ on:
   schedule:
     - cron: '0 0 * * 1'
   workflow_dispatch:
-
 jobs:
   proxy-ip-check:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests charset-normalizer
-
+          pip install requests charset_normalizer geoip2
       - name: Make iptest.sh executable
         run: |
           chmod +x iptest.sh
           chmod +x iptest || echo "iptest binary not found"
-
       - name: Run proxy IP check
         timeout-minutes: 10
         run: |
           echo "Start time: $(date)"
           python3 ip-filter-speedtest-api.py || { cat speedtest.log; exit 1; }
           echo "End time: $(date)"
-
+          cat ip.txt || echo "ip.txt not found"
+          cat ip.csv || echo "ip.csv not found"
+          cat ips.txt || echo "ips.txt not found"
       - name: Commit and push generated files
         run: |
           git config --global user.name "GitHub Actions"
@@ -59,7 +53,6 @@ jobs:
           git add ip.txt ip.csv ips.txt speedtest.log country_cache.json
           git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
           git push || echo "No changes to push"
-
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
