@@ -34,7 +34,7 @@ IPS_FILE = "ips.txt"
 SPEEDTEST_SCRIPT = "./iptest"  # 推荐使用 ./iptest
 FINAL_CSV = "ip.csv"
 INPUT_FILE = "input.csv"
-INPUT_URL = os.getenv("INPUT_URL", "")  # 默认从环境变量读取，支持命令行覆盖
+INPUT_URL = os.getenv("INPUT_URL", "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv")  # 默认从环境变量读取，支持命令行覆盖
 COUNTRY_CACHE_FILE = "country_cache.json"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
