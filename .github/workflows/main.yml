@@ -92,6 +92,8 @@ jobs:
           timeout_minutes: 60
           max_attempts: 3
           command: python -u ip-filter-speedtest-api.py
+          on-retry: |
+            echo "Retrying proxy IP check..."
 
       # 调试 ip.txt
       - name: Debug ip.txt
