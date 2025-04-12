@@ -29,28 +29,39 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests charset-normalizer urllib3
 
-      # 调试：检查 input.csv 是否存在
-      - name: Check input.csv
+      # 调试：检查文件是否存在
+      - name: Check files
         run: |
+          echo "Listing files in repository..."
+          ls -la
+          echo "Checking input.csv..."
           if [ -f "input.csv" ]; then
             echo "input.csv exists"
-            cat input.csv
+            head -n 5 input.csv
           else
             echo "input.csv does not exist"
             exit 1
           fi
+          echo "Checking iptest..."
+          if [ -f "iptest" ]; then
+            echo "iptest exists"
+          else
+            echo "iptest does not exist"
+            exit 1
+          fi
+          echo "Checking iptest.sh..."
+          if [ -f "iptest.sh" ]; then
+            echo "iptest.sh exists"
+          else
+            echo "iptest.sh does not exist"
+            exit 1
+          fi
 
-      # 确保 iptest.sh 可执行
-      - name: Make iptest.sh executable
-        run: chmod +x iptest.sh
-
-      # 安装 iptest.sh 可能需要的工具（根据实际需求调整）
-      - name: Install required tools
+      # 确保 iptest 和 iptest.sh 可执行
+      - name: Make files executable
         run: |
-          sudo apt-get update
-          sudo apt-get install -y curl  # 如果 iptest.sh 使用 curl
-          # 如果 iptest.sh 使用 speedtest-cli，取消注释以下行
-          # sudo apt-get install -y speedtest-cli
+          chmod +x iptest
+          chmod +x iptest.sh
 
       # 运行脚本
       - name: Run IP filter and speed test
