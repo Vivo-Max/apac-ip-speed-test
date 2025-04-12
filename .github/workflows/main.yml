@@ -41,9 +41,6 @@ jobs:
 
       # 运行脚本
       - name: Run proxy IP check
-        env:
-          PROXY_URL: ${{ secrets.PROXY_URL }} # 可选：敏感 URL 存储在 Secrets
-          DESIRED_COUNTRIES: "TW,JP,HK,SG,KR,IN,KP,VN,TH,MM"
         run: |
           python ip-filter-speedtest-api.py --url-first
 
