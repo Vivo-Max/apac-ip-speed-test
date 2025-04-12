@@ -587,7 +587,7 @@ def run_speed_test() -> str:
             logger.info(f"测速完成，结果保存到 {FINAL_CSV}")
             return FINAL_CSV
         else:
-            logger.error(f"测速失败或未生成 {FINAL_CSV}: {stderr}")
+            logger.error(f"测速失败或未生成 {FINAL_CSV}: 返回码={return_code}, stderr={stderr}")
             return None
     except Exception as e:
         logger.error(f"运行测速失败: {e}")
@@ -601,6 +601,7 @@ def filter_speed_and_deduplicate(csv_file: str):
     seen = set()
     final_rows = []
     invalid_speed_rows = []
+    speed_value_counts = defaultdict(int)
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader)
@@ -617,6 +618,7 @@ def filter_speed_and_deduplicate(csv_file: str):
                     float(speed)
                 except ValueError:
                     invalid_speed_rows.append((row[0], row[1], speed))
+                    speed_value_counts[speed] += 1
                     row[3] = '0.0'  # 将无效速度设为 0.0
     if not final_rows:
         logger.info(f"没有符合条件的节点，删除 {csv_file}")
@@ -624,6 +626,7 @@ def filter_speed_and_deduplicate(csv_file: str):
         return
     if invalid_speed_rows:
         logger.warning(f"发现 {len(invalid_speed_rows)} 个无效下载速度值: {invalid_speed_rows[:5]}")
+        logger.info(f"无效速度值分布: {dict(speed_value_counts)}")
     try:
         final_rows.sort(key=lambda x: float(x[3]) if x[3] else 0.0, reverse=True)
     except (ValueError, IndexError) as e:
