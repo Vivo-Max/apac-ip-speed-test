@@ -15,6 +15,10 @@ jobs:
   check-proxy-ip:
     runs-on: ubuntu-latest
 
+    # 确保工作流有推送权限
+    permissions:
+      contents: write
+
     steps:
       # 检出代码
       - name: Checkout repository
@@ -122,6 +126,16 @@ jobs:
           else
             echo "ips.txt not found!"
           fi
+
+      # 提交并推送生成的文件到仓库
+      - name: Commit and push generated files
+        if: always()
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add ip.txt ip.csv ips.txt || echo "No files to add"
+          git commit -m "Update generated files: ip.txt, ip.csv, ips.txt [skip ci]" || echo "Nothing to commit"
+          git push || echo "Failed to push, possibly nothing to commit or no push permissions"
 
       # 上传结果文件
       - name: Upload artifacts
