@@ -20,6 +20,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 检查 input.csv 是否存在
+      - name: Check for input.csv
+        run: |
+          if [ ! -f "input.csv" ]; then
+            echo "Error: input.csv not found! Please upload input.csv to the repository."
+            exit 1
+          fi
+
       # 设置 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
