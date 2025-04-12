@@ -101,6 +101,28 @@ jobs:
             echo "ip.txt not found!"
           fi
 
+      # 调试 ip.csv
+      - name: Debug ip.csv
+        if: always()
+        run: |
+          if [ -f "ip.csv" ]; then
+            echo "ip.csv exists, first 5 lines:"
+            head -n 5 ip.csv
+          else
+            echo "ip.csv not found!"
+          fi
+
+      # 调试 ips.txt
+      - name: Debug ips.txt
+        if: always()
+        run: |
+          if [ -f "ips.txt" ]; then
+            echo "ips.txt exists, first 5 lines:"
+            head -n 5 ips.txt
+          else
+            echo "ips.txt not found!"
+          fi
+
       # 上传结果文件
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
