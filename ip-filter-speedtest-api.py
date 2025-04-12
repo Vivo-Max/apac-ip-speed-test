@@ -116,6 +116,7 @@ def extract_ip_ports_from_file(file_path: str, encoding: str = 'utf-8') -> List[
         raw_data = raw_data[len(codecs.BOM_UTF8):]
 
     # 优先使用指定的编码（默认 UTF-8）
+    successful_encoding = encoding
     try:
         content = raw_data.decode(encoding, errors='strict')
         logger.info(f"成功使用编码 {encoding} 解码文件 {file_path}")
@@ -126,6 +127,7 @@ def extract_ip_ports_from_file(file_path: str, encoding: str = 'utf-8') -> List[
         for enc in fallback_encodings:
             try:
                 content = raw_data.decode(enc, errors='strict')
+                successful_encoding = enc
                 logger.info(f"成功使用备用编码 {enc} 解码文件 {file_path}")
                 break
             except UnicodeDecodeError:
@@ -134,7 +136,7 @@ def extract_ip_ports_from_file(file_path: str, encoding: str = 'utf-8') -> List[
             logger.error(f"无法解码文件 {file_path}，尝试的编码: {[encoding] + fallback_encodings}")
             return []
 
-    logger.info(f"从本地文件 {file_path} 读取内容 (长度: {len(content)} 字节，编码: {encoding})")
+    logger.info(f"从本地文件 {file_path} 读取内容 (长度: {len(content)} 字节，编码: {successful_encoding})")
     logger.debug(f"文件 {file_path} 内容前5行: {content.splitlines()[:5]}")
 
     # 替换换行符
@@ -180,7 +182,7 @@ def extract_ip_ports_from_file(file_path: str, encoding: str = 'utf-8') -> List[
             if country_col != -1:
                 fields = line.split(delimiter)
                 if country_col < len(fields):
-                    country = standardize_country(fields[couple_col].strip())
+                    country = standardize_country(fields[country_col].strip())  # 修正为 country_col
                     if not country:
                         logger.warning(f"检测到可能的乱码国家: {fields[country_col]}，跳过")
                         continue
