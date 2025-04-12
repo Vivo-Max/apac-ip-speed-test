@@ -162,10 +162,14 @@ def is_country_like(value: str) -> bool:
     return False
 
 def standardize_country(country: str) -> str:
-    """标准化国家代码，宽松匹配"""
+    """标准化国家代码，宽松匹配，处理乱码"""
     if not country:
         return ''
     country_clean = country.strip().upper()
+    # 检查是否为乱码（非字母、非中文）
+    if not re.match(r'^[A-Z]{2}$', country_clean) and not any(c in country for c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ中国日本韩国台湾香港新加坡印度'):
+        logger.warning(f"检测到可能的乱码国家: {country}，跳过")
+        return ''
     logger.debug(f"标准化国家: 输入={country}, 转换为={country_clean}")
     if country_clean in COUNTRY_LABELS:
         return country_clean
@@ -347,15 +351,12 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
     encoding = result.get("encoding", "utf-8")
     logger.info(f"检测到文件 {file_path} 的编码: {encoding}")
 
+    # 强制使用 UTF-8 解码，避免乱码
     try:
-        content = raw_data.decode(encoding)
-    except UnicodeDecodeError:
-        logger.warning(f"无法以 {encoding} 解码，尝试 UTF-8")
-        try:
-            content = raw_data.decode('utf-8', errors='replace')
-        except UnicodeDecodeError as e:
-            logger.error(f"解码文件 {file_path} 失败: {e}")
-            return []
+        content = raw_data.decode('utf-8', errors='replace')
+    except UnicodeDecodeError as e:
+        logger.error(f"解码文件 {file_path} 失败: {e}")
+        return []
 
     logger.info(f"从本地文件 {file_path} 读取内容 (长度: {len(content)} 字节)")
     logger.debug(f"文件 {file_path} 内容前5行: {content.splitlines()[:5]}")
