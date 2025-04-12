@@ -77,15 +77,28 @@ COUNTRY_LABELS = {
     'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
 }
 
-# 非标准国家名称映射
+# 非标准国家名称映射（扩展）
 COUNTRY_ALIASES = {
-    'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'HONG KONG': 'HK', 'HONGKONG': 'HK',
-    'UNITED STATES': 'US', 'USA': 'US', 'UNITED KINGDOM': 'GB', 'UK': 'GB', '英国': 'GB',
-    'JAPAN': 'JP', 'JPN': 'JP', 'TAIWAN': 'TW', 'TWN': 'TW', 'SINGAPORE': 'SG',
-    'FRANCE': 'FR', 'GERMANY': 'DE', 'NETHERLANDS': 'NL', 'AUSTRALIA': 'AU',
-    'CANADA': 'CA', 'BRAZIL': 'BR', 'RUSSIA': 'RU', 'INDIA': 'IN', 'CHINA': 'CN',
-    'KOREA, REPUBLIC OF': 'KR', 'REPUBLIC OF KOREA': 'KR', 'VIET NAM': 'VN',
-    'THAILAND': 'TH', 'BURMA': 'MM', 'MYANMAR': 'MM', 'NORTH KOREA': 'KP'
+    'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'KOREA, REPUBLIC OF': 'KR',
+    'HONG KONG': 'HK', 'HONGKONG': 'HK', 'HK SAR': 'HK',
+    'UNITED STATES': 'US', 'USA': 'US', 'U.S.': 'US', 'UNITED STATES OF AMERICA': 'US',
+    'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', '英国': 'GB',
+    'JAPAN': 'JP', 'JPN': 'JP', '日本': 'JP',
+    'TAIWAN': 'TW', 'TWN': 'TW', 'TAIWAN, PROVINCE OF CHINA': 'TW', '台湾': 'TW',
+    'SINGAPORE': 'SG', 'SGP': 'SG', '新加坡': 'SG',
+    'FRANCE': 'FR', 'FRA': 'FR', '法国': 'FR',
+    'GERMANY': 'DE', 'DEU': 'DE', '德国': 'DE',
+    'NETHERLANDS': 'NL', 'NLD': 'NL', '荷兰': 'NL',
+    'AUSTRALIA': 'AU', 'AUS': 'AU', '澳大利亚': 'AU',
+    'CANADA': 'CA', 'CAN': 'CA', '加拿大': 'CA',
+    'BRAZIL': 'BR', 'BRA': 'BR', '巴西': 'BR',
+    'RUSSIA': 'RU', 'RUS': 'RU', '俄罗斯': 'RU',
+    'INDIA': 'IN', 'IND': 'IN', '印度': 'IN',
+    'CHINA': 'CN', 'CHN': 'CN', '中国': 'CN',
+    'VIET NAM': 'VN', 'VIETNAM': 'VN', '越南': 'VN',
+    'THAILAND': 'TH', 'THA': 'TH', '泰国': 'TH',
+    'BURMA': 'MM', 'MYANMAR': 'MM', '缅甸': 'MM',
+    'NORTH KOREA': 'KP', 'KOREA, DEMOCRATIC PEOPLE\'S REPUBLIC OF': 'KP', '朝鲜': 'KP'
 }
 
 # 加载国家缓存
@@ -163,7 +176,8 @@ def standardize_country(country: str) -> str:
     """标准化国家代码，宽松匹配"""
     if not country:
         return ''
-    country_clean = country.strip().upper()
+    # 去除特殊字符，忽略大小写
+    country_clean = re.sub(r'[^a-zA-Z\s]', '', country).strip().upper()
     # 直接匹配标准代码
     if country_clean in COUNTRY_LABELS:
         logger.debug(f"国家代码匹配: {country} -> {country_clean}")
@@ -173,6 +187,13 @@ def standardize_country(country: str) -> str:
         mapped = COUNTRY_ALIASES[country_clean]
         logger.debug(f"通过映射表转换国家: {country} -> {mapped}")
         return mapped
+    # 尝试模糊匹配（例如 "KOREA (SOUTH)" -> "KOREA SOUTH"）
+    country_clean = country_clean.replace(' ', '')
+    for alias, code in COUNTRY_ALIASES.items():
+        alias_clean = alias.replace(' ', '')
+        if country_clean == alias_clean:
+            logger.debug(f"通过模糊匹配转换国家: {country} -> {code}")
+            return code
     logger.warning(f"未识别的国家代码: {country}")
     return ''
 
@@ -530,7 +551,7 @@ def main():
     """主函数"""
     check_dependencies()
     
-    # 直接处理本地 input.csv，不支持从 URL 下载
+    # 直接处理本地 input.csv
     if not os.path.exists(INPUT_FILE):
         logger.error(f"输入文件 {INPUT_FILE} 不存在，请确保已上传 input.csv")
         sys.exit(1)
