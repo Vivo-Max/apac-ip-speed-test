@@ -64,35 +64,31 @@ jobs:
         run: |
           echo "Listing files in directory:"
           ls -l
-          # 检查 iptest.sh
           if [ -f "iptest.sh" ]; then
             chmod +x iptest.sh
             ls -l iptest.sh
-            ./iptest.sh --version || echo "iptest.sh failed to run, will attempt in main script"
           else
             echo "iptest.sh not found!"
             exit 1
           fi
-          # 检查 iptest 二进制文件
           if [ -f "iptest" ]; then
             chmod +x iptest
             ls -l iptest
-            ./iptest --version || echo "iptest binary failed to run, will attempt in main script"
           else
-            echo "iptest binary not found! Please ensure the iptest binary is added to the repository."
+            echo "iptest binary not found!"
             exit 1
           fi
 
       # 运行脚本，带重试机制
       - name: Run proxy IP check
         env:
-          PYTHONUNBUFFERED: 1  # 实时输出日志
+          PYTHONUNBUFFERED: 1
         uses: nick-invision/retry@v3
         with:
           timeout_minutes: 60
           max_attempts: 3
           command: python -u ip-filter-speedtest-api.py --encoding=utf-8
-          on-retry: |
+          on_retry_command: |
             echo "Retrying proxy IP check..."
 
       # 调试 ip.txt
