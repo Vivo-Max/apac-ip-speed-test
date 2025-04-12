@@ -20,14 +20,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 检查 input.csv 是否存在并打印内容
+      # 检查工作目录
+      - name: Check working directory
+        run: |
+          pwd
+          ls -l
+          touch test.txt && echo "Test" > test.txt && cat test.txt || echo "Failed to write to directory"
+
+      # 检查 input.csv
       - name: Check for input.csv
         run: |
           if [ ! -f "input.csv" ]; then
             echo "Warning: input.csv not found, will try URL"
           else
-            echo "input.csv found, first 5 lines:"
-            head -n 5 input.csv
+            echo "input.csv found, encoding:"
+            file input.csv
+            echo "First 5 lines:"
+            head -n 5 input.csv || echo "Failed to read input.csv"
           fi
 
       # 设置 Python 环境
@@ -42,18 +51,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests charset-normalizer
 
-      # 安装系统依赖（确保 iptest.sh 的依赖）
+      # 安装系统依赖
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl
+          sudo apt-get install -y curl wget
+
+      # 检查 iptest 二进制文件
+      - name: Check iptest binary
+        run: |
+          if [ -f "iptest" ]; then
+            chmod +x iptest
+            ls -l iptest
+            ldd iptest || echo "Failed to check iptest dependencies"
+          else
+            echo "iptest binary not found, assuming iptest.sh handles testing"
+          fi
 
       # 确保测速脚本存在并可执行
       - name: Prepare speedtest script
         run: |
           if [ -f "iptest.sh" ]; then
             chmod +x iptest.sh
-            echo "iptest.sh found and made executable"
+            ls -l iptest.sh
+            ./iptest.sh --version || echo "iptest.sh failed to run, will attempt in main script"
           else
             echo "iptest.sh not found!"
             exit 1
@@ -65,7 +86,7 @@ jobs:
           PYTHONUNBUFFERED: 1  # 实时输出日志
         uses: nick-invision/retry@v3
         with:
-          timeout_minutes: 60  # 增加超时时间
+          timeout_minutes: 60
           max_attempts: 3
           command: python -u ip-filter-speedtest-api.py
 
