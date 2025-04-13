@@ -20,6 +20,8 @@ import geoip2.database
 from pathlib import Path
 import tempfile
 import atexit
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
 
 # 配置日志
 logging.basicConfig(
@@ -61,7 +63,7 @@ COUNTRY_LABELS = {
     'KH': ('🇰🇭', '柬埔寨'), 'LA': ('🇱🇦', '老挝'), 'MM': ('🇲🇲', '缅甸'),
     'MN': ('🇲🇳', '蒙古'), 'KP': ('🇰🇵', '朝鲜'), 'US': ('🇺🇸', '美国'),
     'GB': ('🇬🇧', '英国'), 'DE': ('🇩🇪', '德国'), 'FR': ('🇫🇷', '法国'),
-    'IT': ('🇮🇹', '意大利'), 'ES': ('🇪🇸', '西班牙'), 'NL': ('🇳🇱', '荷兰'),
+    'IT': ('🇮🇹', '意大利'), 'ES': ('🇸🇪', '西班牙'), 'NL': ('🇳🇱', '荷兰'),
     'FI': ('🇫🇮', '芬兰'), 'AU': ('🇦🇺', '澳大利亚'), 'CA': ('🇨🇦', '加拿大'),
     'NZ': ('🇳🇿', '新西兰'), 'BR': ('🇧🇷', '巴西'), 'RU': ('🇷🇺', '俄罗斯'),
     'PL': ('🇵🇱', '波兰'), 'UA': ('🇺🇦', '乌克兰'), 'CZ': ('🇨🇿', '捷克'),
@@ -138,7 +140,7 @@ def find_speedtest_script() -> str:
             logger.info(f"找到测速脚本: {candidate}")
             return candidate
     logger.error("未找到测速脚本")
-    sys.exit(1)
+    return None
 
 SPEEDTEST_SCRIPT = find_speedtest_script()
 
@@ -161,34 +163,41 @@ def download_geoip_database(url: str, dest_path: Path) -> bool:
         session = requests.Session()
         retries = Retry(total=5, backoff_factor=2, status_forcelist=[500, 502, 503, 504, 429])
         session.mount('https://', HTTPAdapter(max_retries=retries))
-        response = session.get(url, timeout=60, stream=True, headers=HEADERS)
+        response = session.get(url, timeout=60, stream=True, allow_redirects=True, headers=HEADERS)
         response.raise_for_status()
+        logger.debug(f"HTTP 状态码: {response.status_code}, 内容类型: {response.headers.get('Content-Type', '')}")
         with open(dest_path, "wb") as f:
+            total_size = 0
             for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        logger.info(f"GeoIP 数据库下载完成: {dest_path}")
-        if not dest_path.exists() or dest_path.stat().st_size < 100:
-            logger.error(f"下载的 GeoIP 数据库无效")
+                if chunk:
+                    f.write(chunk)
+                    total_size += len(chunk)
+        logger.info(f"GeoIP 数据库下载完成: {dest_path} (大小: {total_size} 字节)")
+        if not dest_path.exists() or total_size < 100:
+            logger.error(f"下载的 GeoIP 数据库无效或为空: {dest_path}")
             dest_path.unlink(missing_ok=True)
             return False
         try:
             with geoip2.database.Reader(dest_path) as reader:
-                pass
+                logger.debug("GeoIP 数据库文件格式验证通过")
         except Exception as e:
-            logger.error(f"GeoIP 数据库损坏: {e}")
+            logger.error(f"GeoIP 数据库文件损坏: {e}")
             dest_path.unlink(missing_ok=True)
             return False
         return True
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         logger.error(f"下载 GeoIP 数据库失败: {e}")
+        return False
+    except IOError as e:
+        logger.error(f"写入 GeoIP 数据库文件失败: {e}")
         return False
 
 def download_geoip_database_maxmind(dest_path: Path) -> bool:
     if not MAXMIND_LICENSE_KEY:
-        logger.warning("无 MAXMIND_LICENSE_KEY，跳过 MaxMind 下载")
+        logger.warning("未设置 MAXMIND_LICENSE_KEY，跳过 MaxMind 下载")
         return False
     url = GEOIP_DB_URL_BACKUP.format(MAXMIND_LICENSE_KEY)
-    logger.info(f"从 MaxMind 下载 GeoIP 数据库: {url}")
+    logger.info(f"尝试从 MaxMind 下载 GeoIP 数据库: {url}")
     try:
         session = requests.Session()
         retries = Retry(total=5, backoff_factor=2, status_forcelist=[500, 502, 503, 504, 429])
@@ -197,8 +206,11 @@ def download_geoip_database_maxmind(dest_path: Path) -> bool:
         response.raise_for_status()
         temp_tar = dest_path.with_suffix(".tar.gz")
         with open(temp_tar, "wb") as f:
+            total_size = 0
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
+                total_size += len(chunk)
+        logger.info(f"MaxMind 数据库下载完成: {temp_tar} (大小: {total_size} 字节)")
         import tarfile
         with tarfile.open(temp_tar, "r:gz") as tar:
             for member in tar.getmembers():
@@ -209,12 +221,12 @@ def download_geoip_database_maxmind(dest_path: Path) -> bool:
                     break
         temp_tar.unlink(missing_ok=True)
         if not dest_path.exists() or dest_path.stat().st_size < 100:
-            logger.error(f"解压的 GeoIP 数据库无效")
+            logger.error(f"解压后的 GeoIP 数据库无效: {dest_path}")
             dest_path.unlink(missing_ok=True)
             return False
         try:
             with geoip2.database.Reader(dest_path) as reader:
-                pass
+                logger.debug("MaxMind GeoIP 数据库验证通过")
         except Exception as e:
             logger.error(f"MaxMind GeoIP 数据库损坏: {e}")
             dest_path.unlink(missing_ok=True)
@@ -227,23 +239,25 @@ def download_geoip_database_maxmind(dest_path: Path) -> bool:
 
 def init_geoip_reader():
     global geoip_reader
+    logger.info(f"当前工作目录: {os.getcwd()}")
+    logger.info(f"GeoIP 数据库路径: {GEOIP_DB_PATH}")
     if not GEOIP_DB_PATH.exists():
         logger.warning(f"GeoIP 数据库 {GEOIP_DB_PATH} 不存在，尝试下载")
         if not download_geoip_database(GEOIP_DB_URL, GEOIP_DB_PATH):
-            logger.warning("主下载源失败，尝试 MaxMind")
+            logger.warning("主下载源失败，尝试 MaxMind 备用源")
             if not download_geoip_database_maxmind(GEOIP_DB_PATH):
-                logger.error("无法下载 GeoIP 数据库")
+                logger.error("无法下载 GeoIP 数据库，退出")
                 sys.exit(1)
     try:
         geoip_reader = geoip2.database.Reader(GEOIP_DB_PATH)
-        logger.info("GeoIP 数据库加载成功")
+        logger.debug("GeoIP 数据库加载成功")
     except Exception as e:
         logger.error(f"GeoIP 数据库加载失败: {e}")
         GEOIP_DB_PATH.unlink(missing_ok=True)
         if not download_geoip_database(GEOIP_DB_URL, GEOIP_DB_PATH):
-            logger.warning("主下载源失败，尝试 MaxMind")
+            logger.warning("主下载源失败，尝试 MaxMind 备用源")
             if not download_geoip_database_maxmind(GEOIP_DB_PATH):
-                logger.error("重新下载 GeoIP 数据库失败")
+                logger.error("重新下载 GeoIP 数据库失败，退出")
                 sys.exit(1)
         geoip_reader = geoip2.database.Reader(GEOIP_DB_PATH)
 
@@ -252,14 +266,14 @@ def close_geoip_reader():
     if geoip_reader:
         geoip_reader.close()
         geoip_reader = None
-        logger.info("GeoIP 数据库已关闭")
+        logger.debug("GeoIP 数据库连接已关闭")
 
 atexit.register(close_geoip_reader)
 
 def check_dependencies():
     for pkg in REQUIRED_PACKAGES:
         if not importlib.util.find_spec(pkg):
-            logger.error(f"缺少依赖包: {pkg}")
+            logger.error(f"缺少依赖包: {pkg}，请安装")
             sys.exit(1)
     init_geoip_reader()
 
@@ -285,10 +299,10 @@ def is_temp_file_valid(temp_file: str) -> bool:
     mtime = os.path.getmtime(temp_file)
     current_time = time.time()
     if (current_time - mtime) > TEMP_FILE_CACHE_DURATION:
-        logger.info(f"临时文件 {temp_file} 已过期")
+        logger.info(f"临时文件 {temp_file} 已过期 (修改时间: {mtime})")
         return False
     if os.path.getsize(temp_file) < 10:
-        logger.warning(f"临时文件 {temp_file} 内容过小")
+        logger.warning(f"临时文件 {temp_file} 内容过小，可能无效")
         return False
     return True
 
@@ -334,14 +348,19 @@ def standardize_country(country: str) -> str:
         return ''
     country_clean = re.sub(r'[^a-zA-Z\s]', '', country).strip().upper()
     if country_clean in COUNTRY_LABELS:
+        logger.debug(f"国家代码匹配: {country} -> {country_clean}")
         return country_clean
     if country_clean in COUNTRY_ALIASES:
-        return COUNTRY_ALIASES[country_clean]
+        mapped = COUNTRY_ALIASES[country_clean]
+        logger.debug(f"通过映射表转换国家: {country} -> {mapped}")
+        return mapped
     country_clean = country_clean.replace(' ', '')
     for alias, code in COUNTRY_ALIASES.items():
         alias_clean = alias.replace(' ', '')
         if country_clean == alias_clean:
+            logger.debug(f"通过模糊匹配转换国家: {country} -> {code}")
             return code
+    logger.warning(f"未识别的国家代码: {country}")
     return ''
 
 def find_country_column(lines: List[str], delimiter: str) -> Tuple[int, int, int]:
@@ -351,30 +370,26 @@ def find_country_column(lines: List[str], delimiter: str) -> Tuple[int, int, int
     sample_lines = [line for line in lines[:5] if line.strip() and not line.startswith('#')]
     if not sample_lines:
         return ip_col, port_col, country_col
-
     col_matches = defaultdict(int)
     total_rows = len(sample_lines)
     max_cols = max(len(line.split(delimiter)) for line in sample_lines)
-
     for line in sample_lines:
         fields = line.split(delimiter)
         for col, field in enumerate(fields):
             field = field.strip()
             if is_country_like(field):
                 col_matches[col] += 1
-
     if col_matches:
         country_col = max(col_matches, key=col_matches.get)
         match_rate = col_matches[country_col] / total_rows
         if match_rate < 0.5:
             country_col = -1
         else:
-            logger.info(f"国家列: 第 {country_col + 1} 列 (匹配率: {match_rate:.2%})")
-
+            logger.info(f"通过遍历确定国家列: 第 {country_col + 1} 列 (匹配率: {match_rate:.2%})")
     return ip_col, port_col, country_col
 
 def fetch_and_save_to_temp_file(url: str) -> str:
-    logger.info(f"下载 URL: {url} 到 {TEMP_FILE}")
+    logger.info(f"下载 URL: {url} 到临时文件 {TEMP_FILE}")
     try:
         session = requests.Session()
         retries = Retry(total=5, backoff_factor=2, status_forcelist=[500, 502, 503, 504, 429])
@@ -382,12 +397,15 @@ def fetch_and_save_to_temp_file(url: str) -> str:
         response = session.get(url, timeout=60, headers=HEADERS, stream=True)
         response.raise_for_status()
         with open(TEMP_FILE, "wb") as f:
+            raw_content = b""
             for chunk in response.iter_content(chunk_size=8192):
+                raw_content += chunk
                 f.write(chunk)
-        logger.info(f"已下载到 {TEMP_FILE}")
+        logger.info(f"内容已下载到临时文件: {TEMP_FILE} (大小: {len(raw_content)} 字节)")
         return TEMP_FILE
     except Exception as e:
-        logger.error(f"下载 URL 失败: {e}")
+        logger.error(f"下载 URL {url} 失败: {e}")
+        logger.info("请检查网络连接或 URL 是否有效")
         return ''
 
 def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
@@ -397,11 +415,13 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
     start_time = time.time()
     with open(file_path, "rb") as f:
         raw_data = f.read()
-    encoding = detect(raw_data).get("encoding", "utf-8")
+    result = detect(raw_data)
+    encoding = result.get("encoding", "utf-8")
+    logger.info(f"检测到文件 {file_path} 的编码: {encoding}")
     try:
         content = raw_data.decode(encoding)
     except UnicodeDecodeError as e:
-        logger.error(f"无法解码文件 {file_path}: {e}")
+        logger.error(f"无法以 {encoding} 解码文件 {file_path}: {e}")
         return []
     ip_ports = extract_ip_ports_from_content(content)
     logger.info(f"从文件 {file_path} 解析完成 (耗时: {time.time() - start_time:.2f} 秒)")
@@ -413,8 +433,9 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
     content = content.replace('\r\n', '\n').replace('\r', '\n')
     lines = content.splitlines()
     if not lines:
-        logger.error("内容为空")
+        logger.error("内容为空，无法解析")
         return []
+    logger.info(f"输入内容样本（前5行）: {lines[:5]}")
     try:
         data = json.loads(content)
         for item in data:
@@ -423,12 +444,13 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
             country = standardize_country(item.get('country', '') or item.get('countryCode', '') or item.get('location', ''))
             if is_valid_ip(ip) and is_valid_port(str(port)):
                 server_port_pairs.append((ip, int(port), country))
+                logger.debug(f"从 JSON 解析到: {ip}:{port}, 国家: {country or '无'}")
         logger.info(f"从 JSON 解析到 {len(server_port_pairs)} 个节点")
         return list(dict.fromkeys(server_port_pairs))
     except json.JSONDecodeError:
-        pass
-
+        logger.debug("内容不是 JSON，尝试 CSV 或正则解析")
     delimiter = detect_delimiter(lines)
+    logger.info(f"检测到的分隔符: {delimiter if delimiter else '未检测到，使用正则匹配'}")
     ip_col, port_col, country_col = 0, 1, -1
     lines_to_process = lines
     if lines and lines[0].strip() and not lines[0].startswith('#'):
@@ -442,15 +464,15 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
             elif col_lower in ['country', '国家', 'code', 'nation', 'location', 'countrycode', 'region']:
                 country_col = idx
         if country_col != -1:
+            logger.info(f"通过表头确定国家列: 第 {country_col + 1} 列 ({header[country_col]})")
             lines_to_process = lines[1:]
         else:
+            logger.info("表头中未找到国家列，尝试遍历行列")
             if delimiter:
                 ip_col, port_col, country_col = find_country_column(lines, delimiter)
-
     ip_port_pattern = re.compile(
         r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})'
     )
-
     for i, line in enumerate(lines_to_process):
         line = line.strip()
         if not line or line.startswith('#'):
@@ -458,16 +480,17 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
         match = ip_port_pattern.match(line)
         if match:
             server = match.group(1).strip('[]')
-            port = match.group(4)
+            port = int(match.group(4))
             country = ''
             if delimiter and country_col != -1:
                 fields = line.split(delimiter)
                 if country_col < len(fields):
                     country = standardize_country(fields[country_col].strip())
-            if is_valid_port(port):
-                server_port_pairs.append((server, int(port), country))
+            if is_valid_port(str(port)):
+                server_port_pairs.append((server, port, country))
+                logger.debug(f"解析到: {server}:{port}, 国家: {country or '无'}")
             else:
-                invalid_lines.append(f"Line {i}: {line} (Invalid port)")
+                invalid_lines.append(f"Line {i}: {line} (Invalid port range)")
             continue
         if delimiter:
             fields = line.split(delimiter)
@@ -484,19 +507,23 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                     field = field.strip()
                     if is_country_like(field) or field.upper() in COUNTRY_ALIASES:
                         country = standardize_country(field)
-                        break
+                        if country:
+                            logger.debug(f"逐行找到国家: {field} -> {country} (第 {col + 1} 列)")
+                            break
             if is_valid_ip(server) and is_valid_port(port_str):
                 server_port_pairs.append((server, int(port_str), country))
+                logger.debug(f"解析到: {server}:{port_str}, 国家: {country or '无'}")
             else:
                 invalid_lines.append(f"Line {i}: {line} (Invalid IP or port)")
         else:
-            invalid_lines.append(f"Line {i}: {line} (No valid format)")
-
+            invalid_lines.append(f"Line {i}: {line} (No valid format detected)")
     if invalid_lines:
-        logger.info(f"发现 {len(invalid_lines)} 个无效条目")
-    logger.info(f"解析到 {len(server_port_pairs)} 个节点")
+        logger.info(f"发现 {len(invalid_lines)} 个无效条目: {invalid_lines[:5]}")
+    else:
+        logger.info("无无效行")
+    logger.info(f"解析到 {len(server_port_pairs)} 个 IP:端口对")
     unique_server_port_pairs = list(dict.fromkeys(server_port_pairs))
-    logger.info(f"去重后: {len(unique_server_port_pairs)} 个节点")
+    logger.info(f"去重后共 {len(unique_server_port_pairs)} 个 server:port:country 对")
     return unique_server_port_pairs
 
 def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
@@ -507,12 +534,60 @@ def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
         country_code = response.country.iso_code or ''
         if country_code:
             cache[ip] = country_code
+            logger.debug(f"IP {ip} 国家代码: {country_code}")
             return country_code
         return ''
-    except Exception:
+    except Exception as e:
+        logger.error(f"查询 IP {ip} 国家失败: {e}")
         return ''
 
-def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
+def test_initial_latency(ip_ports: List[Tuple[str, int, str]], max_workers: int = 50, timeout: int = 5, use_http: bool = False) -> List[Tuple[str, int, str, float]]:
+    """并行测试节点延迟（ping 或 HTTP）"""
+    logger.info(f"开始测试 {len(ip_ports)} 个节点的初始延迟 {'(HTTP)' if use_http else '(ping)'}")
+    start_time = time.time()
+    results = []
+    result_queue = Queue()
+
+    if use_http:
+        def test_node(ip: str, port: int, country: str):
+            try:
+                start = time.time()
+                response = requests.head(f"http://{ip}:{port}", timeout=timeout, headers=HEADERS)
+                response.raise_for_status()
+                latency = (time.time() - start) * 1000  # ms
+                result_queue.put((ip, port, country, latency))
+                logger.debug(f"节点 {ip}:{port} HTTP 延迟: {latency:.2f} ms")
+            except Exception as e:
+                result_queue.put((ip, port, country, float('inf')))
+                logger.debug(f"节点 {ip}:{port} HTTP 失败: {e}")
+    else:
+        def test_node(ip: str, port: int, country: str):
+            try:
+                cmd = ["ping", "-c", "3", "-W", "1", ip]
+                output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=timeout, text=True)
+                match = re.search(r'rtt min/avg/max/mdev = [\d.]+/([\d.]+)/[\d.]+/[\d.]+ ms', output)
+                if match:
+                    latency = float(match.group(1))
+                    result_queue.put((ip, port, country, latency))
+                    logger.debug(f"节点 {ip}:{port} ping 延迟: {latency:.2f} ms")
+                else:
+                    result_queue.put((ip, port, country, float('inf')))
+            except Exception as e:
+                result_queue.put((ip, port, country, float('inf')))
+                logger.debug(f"节点 {ip}:{port} ping 失败: {e}")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(test_node, ip, port, country) for ip, port, country in ip_ports]
+        for future in futures:
+            future.result()
+
+    while not result_queue.empty():
+        results.append(result_queue.get())
+
+    logger.info(f"延迟测试完成，耗时: {time.time() - start_time:.2f} 秒，有效节点: {len([r for r in results if r[3] != float('inf')])}")
+    return results
+
+def write_ip_list(ip_ports: List[Tuple[str, int, str]], target_nodes: int = 500, latency_threshold: float = 500.0) -> str:
     if not ip_ports:
         logger.error(f"无有效节点，无法生成 {IP_LIST_FILE}")
         return None
@@ -522,53 +597,102 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     filtered_ip_ports = []
     country_counts = defaultdict(int)
     filtered_counts = defaultdict(int)
-    soft_max_nodes = 2000
-    logger.info(f"筛选 {len(ip_ports)} 个节点")
+    initial_limit = 4000  # 采样上限
+    logger.info(f"开始筛选 {len(ip_ports)} 个节点")
 
-    for ip, port, country in ip_ports:
+    # 采样
+    if len(ip_ports) > initial_limit:
+        logger.info(f"节点数超 {initial_limit}，随机采样")
+        ip_ports = random.sample(ip_ports, initial_limit)
+        logger.info(f"采样后: {len(ip_ports)} 个节点")
+
+    # 测试延迟
+    use_http = False
+    try:
+        subprocess.check_output(["ping", "-c", "1", "-W", "1", "8.8.8.8"], stderr=subprocess.STDOUT, timeout=2)
+        logger.info("ping 测试通过，使用 ping 延迟")
+    except Exception:
+        logger.warning("ping 测试失败，切换到 HTTP 延迟")
+        use_http = True
+
+    latency_results = test_initial_latency(ip_ports, max_workers=50, timeout=5, use_http=use_http)
+    valid_results = [(ip, port, country, latency) for ip, port, country, latency in latency_results if latency != float('inf')]
+    logger.info(f"有效延迟节点: {len(valid_results)}")
+
+    # 筛选 DESIRED_COUNTRIES
+    desired_results = []
+    for ip, port, country, latency in valid_results:
         if country and country in DESIRED_COUNTRIES:
-            filtered_ip_ports.append((ip, port))
+            desired_results.append((ip, port, country, latency))
             country_counts[country] += 1
+            logger.debug(f"保留节点 {ip}:{port} ({country}, 延迟: {latency:.2f} ms)")
         elif country:
             filtered_counts[country] += 1
+            logger.debug(f"过滤节点 {ip}:{port} ({country})")
         else:
             country_from_geoip = get_country_from_ip(ip, country_cache)
             if country_from_geoip in DESIRED_COUNTRIES:
-                filtered_ip_ports.append((ip, port))
+                desired_results.append((ip, port, country_from_geoip, latency))
                 country_counts[country_from_geoip] += 1
+                logger.debug(f"保留节点 {ip}:{port} (GeoIP: {country_from_geoip}, 延迟: {latency:.2f} ms)")
             else:
-                filtered_counts[country_from_geoip] += 1
+                filtered_counts[country_from_geoip or '未知'] += 1
+                logger.debug(f"过滤节点 {ip}:{port} (GeoIP: {country_from_geoip or '未知'})")
 
-    logger.info(f"保留国家: {dict(country_counts)}")
-    logger.info(f"过滤国家: {dict(filtered_counts)}")
+    logger.info(f"筛选结果 - 保留国家: {dict(country_counts)}")
+    logger.info(f"筛选结果 - 过滤国家: {dict(filtered_counts)}")
 
-    if len(filtered_ip_ports) > soft_max_nodes:
-        logger.warning(f"节点数 {len(filtered_ip_ports)} 超软上限 {soft_max_nodes}，随机采样")
-        filtered_ip_ports = random.sample(filtered_ip_ports, soft_max_nodes)
-        country_counts = defaultdict(int)
-        for ip, port in filtered_ip_ports:
-            country = get_country_from_ip(ip, country_cache)
-            if country in DESIRED_COUNTRIES:
-                country_counts[country] += 1
-        logger.info(f"采样后: {len(filtered_ip_ports)} 节点，国家分布: {dict(country_counts)}")
-
-    if not filtered_ip_ports:
+    if not desired_results:
         logger.error(f"无符合 {DESIRED_COUNTRIES} 的节点")
         return None
 
+    # 按延迟排序
+    desired_results.sort(key=lambda x: x[3])
+    filtered_results = []
+    if latency_threshold > 0:
+        filtered_results = [(ip, port, country, latency) for ip, port, country, latency in desired_results if latency <= latency_threshold]
+        logger.info(f"延迟 <= {latency_threshold} ms 的节点: {len(filtered_results)}")
+        if len(filtered_results) < 100:  # 最小节点保护
+            logger.warning(f"延迟阈值节点不足 ({len(filtered_results)} < 100)，退回 Top {target_nodes}")
+            filtered_results = desired_results[:target_nodes]
+    else:
+        filtered_results = desired_results[:target_nodes]
+        logger.info(f"筛选 Top {target_nodes} 节点")
+
+    filtered_ip_ports = [(ip, port) for ip, port, _, _ in filtered_results]
+
+    if not filtered_ip_ports:
+        logger.error(f"无符合延迟要求的节点")
+        return None
+
+    # 写入 ip.txt
     with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
         for ip, port in filtered_ip_ports:
             f.write(f"{ip} {port}\n")
-    logger.info(f"生成 {IP_LIST_FILE}，{len(filtered_ip_ports)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    logger.info(f"生成 {IP_LIST_FILE}，包含 {len(filtered_ip_ports)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
+
+    # 验证国家分布
+    verify_counts = defaultdict(int)
+    for ip, port in filtered_ip_ports:
+        country = get_country_from_ip(ip, country_cache)
+        if country in DESIRED_COUNTRIES:
+            verify_counts[country] += 1
+    logger.info(f"ip.txt 国家分布验证: {dict(verify_counts)}")
+    if filtered_ip_ports:
+        logger.debug(f"ip.txt 前5个节点样本: {filtered_ip_ports[:5]}")
+
     save_country_cache(country_cache)
     return IP_LIST_FILE
 
 def run_speed_test() -> str:
     if not SPEEDTEST_SCRIPT:
-        logger.error("测速脚本未找到")
+        logger.error("测速脚本未找到，跳过测速")
         return None
     if not os.path.exists(IP_LIST_FILE):
-        logger.error(f"{IP_LIST_FILE} 不存在")
+        logger.error(f"IP 列表文件 {IP_LIST_FILE} 不存在")
+        return None
+    if not os.access(SPEEDTEST_SCRIPT, os.X_OK):
+        logger.error(f"测速脚本 {SPEEDTEST_SCRIPT} 不可执行")
         return None
 
     start_time = time.time()
@@ -590,20 +714,20 @@ def run_speed_test() -> str:
         batch_output = os.path.join(temp_dir, f"batch_{i}.csv")
         with open(batch_file, "w", encoding="utf-8") as f:
             f.writelines(batch_lines)
+        cmd = [
+            SPEEDTEST_SCRIPT,
+            f"-file={batch_file}",
+            "-tls=true",
+            "-speedtest=3",
+            "-speedlimit=8",
+            "-url=speed.cloudflare.com/__down?bytes=1000000",
+            "-max=10",
+            "-timeout=10",
+            f"-outfile={batch_output}"
+        ]
+        logger.info(f"运行批次 {i//batch_size + 1} 命令: {' '.join(cmd)}")
         batch_start_time = time.time()
         try:
-            cmd = [
-                SPEEDTEST_SCRIPT,
-                f"-file={batch_file}",
-                "-tls=true",
-                "-speedtest=3",
-                "-speedlimit=8",
-                "-url=speed.cloudflare.com/__down?bytes=1000000",
-                "-max=10",
-                "-timeout=10",
-                f"-outfile={batch_output}"
-            ]
-            logger.info(f"批次 {i//batch_size + 1} 命令: {' '.join(cmd)}")
             process = subprocess.Popen(
                 ' '.join(cmd),
                 stdout=subprocess.PIPE,
@@ -613,7 +737,8 @@ def run_speed_test() -> str:
                 encoding='utf-8',
                 errors='replace'
             )
-            stdout_lines, stderr_lines = [], []
+            stdout_lines = []
+            stderr_lines = []
             def read_stream(stream, lines):
                 while True:
                     line = stream.readline()
@@ -637,31 +762,49 @@ def run_speed_test() -> str:
             if return_code == 0 and os.path.exists(batch_output):
                 output_files.append(batch_output)
             else:
-                logger.error(f"批次 {i//batch_size + 1} 失败")
+                logger.warning(f"批次 {i//batch_size + 1} 失败，退出码: {return_code}")
         except subprocess.TimeoutExpired:
-            logger.error(f"批次 {i//batch_size + 1} 超时")
+            logger.error(f"批次 {i//batch_size + 1} 超时，强制终止")
             process.kill()
         except Exception as e:
             logger.error(f"批次 {i//batch_size + 1} 失败: {e}")
 
-    if output_files:
-        with open(FINAL_CSV, "w", encoding="utf-8") as outfile:
-            for idx, batch_output in enumerate(output_files):
-                with open(batch_output, "r", encoding="utf-8") as infile:
-                    if idx == 0:
-                        outfile.write(infile.read())
-                    else:
-                        lines = infile.readlines()[1:]
-                        outfile.writelines(lines)
-        logger.info(f"合并 {len(output_files)} 个批次到 {FINAL_CSV}")
-        return FINAL_CSV
-    logger.error("所有批次测速失败")
-    return None
+    if not output_files:
+        logger.error("无有效测速结果")
+        return None
+
+    # 合并 CSV
+    all_rows = []
+    header = None
+    for idx, output_file in enumerate(output_files):
+        try:
+            with open(output_file, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                file_header = next(reader, None)
+                if not header:
+                    header = file_header
+                for row in reader:
+                    if len(row) >= len(header):
+                        all_rows.append(row)
+        except Exception as e:
+            logger.warning(f"读取批次文件 {output_file} 失败: {e}")
+
+    if not all_rows:
+        logger.error("合并后无有效节点")
+        return None
+
+    with open(FINAL_CSV, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(all_rows)
+
+    logger.info(f"测速完成，生成 {FINAL_CSV}，包含 {len(all_rows)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    return FINAL_CSV
 
 def filter_speed_and_deduplicate(csv_file: str):
     start_time = time.time()
     if not os.path.exists(csv_file):
-        logger.info(f"{csv_file} 不存在")
+        logger.info(f"{csv_file} 不存在，跳过去重")
         return
     seen = set()
     final_rows = []
@@ -676,23 +819,23 @@ def filter_speed_and_deduplicate(csv_file: str):
                 seen.add(key)
                 final_rows.append(row)
     if not final_rows:
-        logger.info(f"无有效节点")
+        logger.info(f"没有符合条件的节点，删除 {csv_file}")
         os.remove(csv_file)
         return
     try:
         final_rows.sort(key=lambda x: float(x[9]) if x[9] else 0.0, reverse=True)
-    except Exception as e:
-        logger.warning(f"排序失败: {e}")
+    except (ValueError, IndexError) as e:
+        logger.error(f"按下载速度排序失败: {e}，保持原顺序")
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(header)
         writer.writerows(final_rows)
-    logger.info(f"{csv_file} 处理完成，{len(final_rows)} 条记录 (耗时: {time.time() - start_time:.2f} 秒)")
+    logger.info(f"去重并排序完成，{csv_file} 包含 {len(final_rows)} 条记录 (耗时: {time.time() - start_time:.2f} 秒)")
 
 def generate_ips_file(csv_file: str):
     start_time = time.time()
     if not os.path.exists(csv_file):
-        logger.info(f"{csv_file} 不存在")
+        logger.info(f"{csv_file} 不存在，跳过生成 {IPS_FILE}")
         return
     country_cache = load_country_cache()
     final_nodes = []
@@ -704,12 +847,15 @@ def generate_ips_file(csv_file: str):
                 continue
             ip, port = row[0], row[1]
             if not is_valid_ip(ip) or not is_valid_port(port):
+                logger.debug(f"无效 IP 或端口: {ip}:{port}")
                 continue
             country = get_country_from_ip(ip, country_cache)
             if country in DESIRED_COUNTRIES:
                 final_nodes.append((ip, int(port), country))
+            else:
+                logger.debug(f"过滤掉 {ip}:{port}，国家 {country} 不在 {DESIRED_COUNTRIES}")
     if not final_nodes:
-        logger.info(f"无符合条件的节点")
+        logger.info(f"没有符合条件的节点，跳过生成 {IPS_FILE}")
         return
     country_count = defaultdict(int)
     labeled_nodes = []
@@ -722,38 +868,47 @@ def generate_ips_file(csv_file: str):
     with open(IPS_FILE, "w", encoding="utf-8-sig") as f:
         for ip, port, label in labeled_nodes:
             f.write(f"{ip}:{port}#{label}\n")
-    logger.info(f"生成 {IPS_FILE}，{len(labeled_nodes)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    logger.info(f"生成 {IPS_FILE}，包含 {len(labeled_nodes)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
     save_country_cache(country_cache)
 
 def main():
     start_time = time.time()
-    logger.info("脚本开始")
+    logger.info("脚本开始执行")
     check_dependencies()
     parser = argparse.ArgumentParser(description="IP Filter and Speed Test")
-    parser.add_argument("--url", default=INPUT_URL)
+    parser.add_argument("--url", help="URL to fetch IP list", default=INPUT_URL)
+    parser.add_argument("--target-nodes", type=int, default=500, help="Target number of nodes for ip.txt")
+    parser.add_argument("--latency-threshold", type=float, default=500.0, help="Latency threshold in ms (0 to disable)")
     args = parser.parse_args()
     try:
         ip_ports = []
         if os.path.exists(INPUT_FILE):
-            logger.info(f"从 {INPUT_FILE} 获取节点")
+            logger.info(f"尝试从本地文件 {INPUT_FILE} 获取 IP")
             ip_ports = extract_ip_ports_from_file(INPUT_FILE)
         else:
-            logger.info(f"未找到 {INPUT_FILE}，从 URL {args.url} 下载")
+            logger.info(f"本地文件 {INPUT_FILE} 不存在，尝试从 URL {args.url} 获取 IP")
             temp_file = fetch_and_save_to_temp_file(args.url)
             if temp_file:
                 ip_ports = extract_ip_ports_from_file(temp_file)
+            else:
+                logger.error("无法下载 URL 内容，退出")
+                sys.exit(1)
         if not ip_ports:
-            logger.error("未获取到有效节点")
+            logger.error("未获取到有效的 IP 和端口，退出")
+            logger.debug(f"检查 URL: {args.url}")
             sys.exit(1)
-        ip_list_file = write_ip_list(ip_ports)
+        logger.info(f"获取 IP 列表完成，解析到 {len(ip_ports)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
+        ip_list_file = write_ip_list(ip_ports, target_nodes=args.target_nodes, latency_threshold=args.latency_threshold)
         if not ip_list_file:
+            logger.error("生成 ip.txt 失败")
             sys.exit(1)
         csv_file = run_speed_test()
         if not csv_file:
+            logger.error("测速失败")
             sys.exit(1)
         filter_speed_and_deduplicate(csv_file)
         generate_ips_file(csv_file)
-        logger.info(f"脚本完成 (总耗时: {time.time() - start_time:.2f} 秒)")
+        logger.info(f"脚本执行完成 (总耗时: {time.time() - start_time:.2f} 秒)")
     finally:
         close_geoip_reader()
 
