@@ -55,16 +55,57 @@ DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
 REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2']
 COUNTRY_LABELS = {
     'JP': ('🇯🇵', '日本'), 'KR': ('🇰🇷', '韩国'), 'SG': ('🇸🇬', '新加坡'),
-    'TW': ('🇹🇼', '台湾'), 'HK': ('🇭🇰', '香港'), 'VN': ('🇻🇳', '越南'),
-    'IN': ('🇮🇳', '印度'), 'KP': ('🇰🇵', '朝鲜'), 'TH': ('🇹🇭', '泰国'),
-    'MM': ('🇲🇲', '缅甸')
+    'TW': ('🇹🇼', '台湾'), 'HK': ('🇭🇰', '香港'), 'MY': ('🇲🇾', '马来西亚'),
+    'TH': ('🇹🇭', '泰国'), 'ID': ('🇮🇩', '印度尼西亚'), 'PH': ('🇵🇭', '菲律宾'),
+    'VN': ('🇻🇳', '越南'), 'IN': ('🇮🇳', '印度'), 'MO': ('🇲🇴', '澳门'),
+    'KH': ('🇰🇭', '柬埔寨'), 'LA': ('🇱🇦', '老挝'), 'MM': ('🇲🇲', '缅甸'),
+    'MN': ('🇲🇳', '蒙古'), 'KP': ('🇰🇵', '朝鲜'), 'US': ('🇺🇸', '美国'),
+    'GB': ('🇬🇧', '英国'), 'DE': ('🇩🇪', '德国'), 'FR': ('🇫🇷', '法国'),
+    'IT': ('🇮🇹', '意大利'), 'ES': ('🇪🇸', '西班牙'), 'NL': ('🇳🇱', '荷兰'),
+    'FI': ('🇫🇮', '芬兰'), 'AU': ('🇦🇺', '澳大利亚'), 'CA': ('🇨🇦', '加拿大'),
+    'NZ': ('🇳🇿', '新西兰'), 'BR': ('🇧🇷', '巴西'), 'RU': ('🇷🇺', '俄罗斯'),
+    'PL': ('🇵🇱', '波兰'), 'UA': ('🇺🇦', '乌克兰'), 'CZ': ('🇨🇿', '捷克'),
+    'HU': ('🇭🇺', '匈牙利'), 'RO': ('🇷🇴', '罗马尼亚'), 'SA': ('🇸🇦', '沙特阿拉伯'),
+    'AE': ('🇦🇪', '阿联酋'), 'QA': ('🇶🇦', '卡塔尔'), 'IL': ('🇮🇱', '以色列'),
+    'TR': ('🇹🇷', '土耳其'), 'IR': ('🇮🇷', '伊朗'),
+    'CN': ('🇨🇳', '中国'), 'BD': ('🇧🇩', '孟加拉国'), 'PK': ('🇵🇰', '巴基斯坦'),
+    'LK': ('🇱🇰', '斯里兰卡'), 'NP': ('🇵🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
+    'MV': ('🇲🇻', '马尔代夫'), 'BN': ('🇧🇳', '文莱'), 'TL': ('🇹🇱', '东帝汶'),
+    'EG': ('🇪🇬', '埃及'), 'ZA': ('🇿🇦', '南非'), 'NG': ('🇳🇬', '尼日利亚'),
+    'KE': ('🇰🇪', '肯尼亚'), 'GH': ('🇬🇭', '加纳'), 'MA': ('🇲🇦', '摩洛哥'),
+    'DZ': ('🇩🇿', '阿尔及利亚'), 'TN': ('🇹🇳', '突尼斯'), 'AR': ('🇦🇷', '阿根廷'),
+    'CL': ('🇨🇱', '智利'), 'CO': ('🇨🇴', '哥伦比亚'), 'PE': ('🇵🇪', '秘鲁'),
+    'MX': ('🇲🇽', '墨西哥'), 'VE': ('🇻🇪', '委内瑞拉'), 'SE': ('🇸🇪', '瑞典'),
+    'NO': ('🇳🇴', '挪威'), 'DK': ('🇩🇰', '丹麦'), 'CH': ('🇨🇭', '瑞士'),
+    'AT': ('🇦🇹', '奥地利'), 'BE': ('🇧🇪', '比利时'), 'IE': ('🇮🇪', '爱尔兰'),
+    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇬🇬', '保加利亚'),
+    'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
+    'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
+    'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇻🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
+    'KG': ('🇰🇬', '吉尔吉斯斯坦'), 'TJ': ('🇹🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
+    'GE': ('🇬🇪', '格鲁吉亚'), 'AM': ('🇦🇲', '亚美尼亚'), 'AZ': ('🇦🇿', '阿塞拜疆'),
+    'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
+    'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
+    'IQ': ('🇮🇶', '伊拉克'), 'YE': ('🇾🇪', '也门'),
+    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('�LV', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
 }
 COUNTRY_ALIASES = {
     'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'KOREA, REPUBLIC OF': 'KR',
     'HONG KONG': 'HK', 'HONGKONG': 'HK', 'HK SAR': 'HK',
+    'UNITED STATES': 'US', 'USA': 'US', 'U.S.': 'US', 'UNITED STATES OF AMERICA': 'US',
+    'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', '英国': 'GB',
     'JAPAN': 'JP', 'JPN': 'JP', '日本': 'JP',
     'TAIWAN': 'TW', 'TWN': 'TW', 'TAIWAN, PROVINCE OF CHINA': 'TW', '台湾': 'TW',
     'SINGAPORE': 'SG', 'SGP': 'SG', '新加坡': 'SG',
+    'FRANCE': 'FR', 'FRA': 'FR', '法国': 'FR',
+    'GERMANY': 'DE', 'DEU': 'DE', '德国': 'DE',
+    'NETHERLANDS': 'NL', 'NLD': 'NL', '荷兰': 'NL',
+    'AUSTRALIA': 'AU', 'AUS': 'AU', '澳大利亚': 'AU',
+    'CANADA': 'CA', 'CAN': 'CA', '加拿大': 'CA',
+    'BRAZIL': 'BR', 'BRA': 'BR', '巴西': 'BR',
+    'RUSSIA': 'RU', 'RUS': 'RU', '俄罗斯': 'RU',
+    'INDIA': 'IN', 'IND': 'IN', '印度': 'IN',
+    'CHINA': 'CN', 'CHN': 'CN', '中国': 'CN',
     'VIET NAM': 'VN', 'VIETNAM': 'VN', '越南': 'VN',
     'THAILAND': 'TH', 'THA': 'TH', '泰国': 'TH',
     'BURMA': 'MM', 'MYANMAR': 'MM', '缅甸': 'MM',
@@ -175,7 +216,7 @@ def download_geoip_database_maxmind(dest_path: Path) -> bool:
             with geoip2.database.Reader(dest_path) as reader:
                 pass
         except Exception as e:
-            logger.error(f"GeoIP 数据库损坏: {e}")
+            logger.error(f"MaxMind GeoIP 数据库损坏: {e}")
             dest_path.unlink(missing_ok=True)
             return False
         return True
@@ -472,7 +513,6 @@ def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
         return ''
 
 def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
-    """写入 ip.txt，保留所有符合条件的节点"""
     if not ip_ports:
         logger.error(f"无有效节点，无法生成 {IP_LIST_FILE}")
         return None
@@ -482,7 +522,7 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     filtered_ip_ports = []
     country_counts = defaultdict(int)
     filtered_counts = defaultdict(int)
-    soft_max_nodes = 2000  # 软上限，防极端情况
+    soft_max_nodes = 2000
     logger.info(f"筛选 {len(ip_ports)} 个节点")
 
     for ip, port, country in ip_ports:
@@ -502,7 +542,6 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     logger.info(f"保留国家: {dict(country_counts)}")
     logger.info(f"过滤国家: {dict(filtered_counts)}")
 
-    # 软上限
     if len(filtered_ip_ports) > soft_max_nodes:
         logger.warning(f"节点数 {len(filtered_ip_ports)} 超软上限 {soft_max_nodes}，随机采样")
         filtered_ip_ports = random.sample(filtered_ip_ports, soft_max_nodes)
@@ -525,7 +564,6 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     return IP_LIST_FILE
 
 def run_speed_test() -> str:
-    """分批运行测速，控制总时间"""
     if not SPEEDTEST_SCRIPT:
         logger.error("测速脚本未找到")
         return None
@@ -535,7 +573,7 @@ def run_speed_test() -> str:
 
     start_time = time.time()
     batch_size = 20
-    max_time_seconds = 480  # 8 分钟
+    max_time_seconds = 480
     temp_dir = tempfile.mkdtemp()
     output_files = []
 
@@ -559,7 +597,7 @@ def run_speed_test() -> str:
                 f"-file={batch_file}",
                 "-tls=true",
                 "-speedtest=3",
-                "-speedlimit=10",
+                "-speedlimit=8",
                 "-url=speed.cloudflare.com/__down?bytes=1000000",
                 "-max=10",
                 "-timeout=10",
