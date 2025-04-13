@@ -19,26 +19,24 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          cache: 'pip'  # 自动缓存 pip 依赖
 
       - name: Install dependencies
-        run: pip install requests charset-normalizer geoip2
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests charset-normalizer geoip2
+        shell: bash
 
       - name: Set execute permissions
         run: chmod +x iptest.sh iptest
+        shell: bash
         continue-on-error: true
 
       - name: Run script
         run: python ip-filter-speedtest-api.py --url=$INPUT_URL --generate-ips
         env:
           INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
+        shell: bash
         timeout-minutes: 20
         continue-on-error: true
 
