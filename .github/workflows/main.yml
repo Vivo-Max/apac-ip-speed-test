@@ -1,9 +1,9 @@
 name: IP Speed Test
 
 on:
-  workflow_dispatch:  # 保留手动触发
+  workflow_dispatch:
   schedule:
-    - cron: "0 0 * * 1"  # 每周一 UTC 00:00（北京时间 08:00）
+    - cron: "0 0 * * 1"
 
 jobs:
   speedtest:
@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -27,68 +29,17 @@ jobs:
             ${{ runner.os }}-pip-
 
       - name: Install dependencies
-        run: pip install requests charset-normalizer
+        run: pip install requests charset-normalizer geoip2
 
       - name: Set execute permissions
         run: chmod +x iptest.sh iptest
         continue-on-error: true
 
-      - name: Validate input data
-        run: |
-          echo "Downloading and validating input CSV..." > input_size.txt
-          curl -s -o input.csv $INPUT_URL
-          lines=$(wc -l < input.csv)
-          echo "Input CSV lines: $lines" >> input_size.txt
-          head -n 5 input.csv > input_sample.txt
-          echo "Input sample (first 5 lines):" >> input_size.txt
-          cat input_sample.txt >> input_size.txt
-          if [ "$lines" -lt 1000 ]; then
-            echo "Warning: Input contains fewer than 1000 lines" >> input_size.txt
-          fi
+      - name: Run script
+        run: python ip-filter-speedtest-api.py --url=$INPUT_URL --generate-ips
         env:
           INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
-
-      - name: Extract nodes and generate ip.txt
-        run: python ip-filter-speedtest-api.py --url=$INPUT_URL
-        env:
-          INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
-        timeout-minutes: 2
-
-      - name: Commit and push ip.txt
-        run: |
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-          git add ip.txt
-          git commit -m "Add ip.txt with raw nodes" || echo "No changes to commit"
-          git pull --rebase
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      - name: Run speed test and generate ips.txt
-        run: python ip-filter-speedtest-api.py --generate-ips
-        continue-on-error: true
-
-      - name: Commit and push ip.csv and ips.txt
-        run: |
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-          git add ip.csv ips.txt
-          git commit -m "Add ip.csv and ips.txt with speed test results" || echo "No changes to commit"
-          git pull --rebase
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      - name: Summarize results
-        run: |
-          echo "ip.txt nodes: $(wc -l < ip.txt 2>/dev/null || echo 0)" > summary.txt
-          echo "ips.txt nodes: $(wc -l < ips.txt 2>/dev/null || echo 0)" >> summary.txt
-          echo "Log summary:" >> summary.txt
-          grep -E "解析到|生成|国家分布|错误|警告" speedtest.log >> summary.txt || echo "No relevant log entries" >> summary.txt
-          cat summary.txt
+        timeout-minutes: 20
         continue-on-error: true
 
       - name: Upload results
@@ -100,7 +51,4 @@ jobs:
             ip.csv
             ips.txt
             speedtest.log
-            input_size.txt
-            input_sample.txt
-            summary.txt
           if-no-files-found: warn
