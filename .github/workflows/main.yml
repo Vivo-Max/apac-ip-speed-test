@@ -1,9 +1,6 @@
 name: Cloudflare IP 处理与测速
 
 on:
-  push:
-    branches:
-      - main
   schedule:
     - cron: '0 0 * * 1' # 每周一 UTC 0 点运行
   workflow_dispatch: # 支持手动触发
@@ -50,12 +47,12 @@ jobs:
             echo "警告：未找到 iptest.sh 或 iptest，依赖脚本内部处理"
           fi
 
-      # 第一步：生成并推送 ip.txt
+      # 第一步：生成 ip.txt
       - name: 生成 ip.txt
         continue-on-error: true
         timeout-minutes: 2
         run: |
-          python ip-filter-speedtest-api.py
+          python3 ip-filter-speedtest-api.py
           if [ -f ip.txt ]; then
             echo "ip.txt 已生成，节点数：$(wc -l < ip.txt)"
           else
@@ -68,7 +65,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 25
         run: |
-          python ip-filter-speedtest-api.py --generate-ips
+          python3 ip-filter-speedtest-api.py --generate-ips
           if [ -f ip.csv ]; then
             echo "ip.csv 已生成，节点数：$(($(wc -l < ip.csv) - 1))"
           else
