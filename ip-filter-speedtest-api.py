@@ -544,29 +544,7 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
         for ip, port in filtered_ip_ports:
             f.write(f"{ip} {port}\n")
-    logger.info(f"生成 {IP_LIST_FILE}，包含 {len(filtered_ip_ports NOSPACES)} 个节点（耗时：{time.time() - start_time:.2f} 秒）")
-
-    try:
-        logger.info(f"推送 {IP_LIST_FILE} 到远程仓库")
-        subprocess.run(["git", "config", "--global", "user.name", "GitHub Actions Bot"], check=True)
-        subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
-        if os.path.exists(IP_LIST_FILE):
-            subprocess.run(["git", "add", IP_LIST_FILE], check=True)
-            subprocess.run(["git", "commit", "-m", "Update ip.txt with nodes"], check=True)
-            subprocess.run(["git", "pull", "--rebase"], check=True)
-            subprocess.run(["git", "push"], check=True)
-            logger.info(f"成功推送 {IP_LIST_FILE}")
-        else:
-            logger.error(f"{IP_LIST_FILE} 不存在，跳过推送")
-    except subprocess.CalledProcessError as e:
-        logger.warning(f"推送 {IP_LIST_FILE} 失败: {e}")
-        try:
-            logger.info("尝试强制推送")
-            subprocess.run(["git", "push", "--force"], check=True)
-            logger.info(f"强制推送 {IP_LIST_FILE} 成功")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"强制推送失败: {e}")
-
+    logger.info(f"生成 {IP_LIST_FILE}，包含 {len(filtered_ip_ports)} 个节点（耗时：{time.time() - start_time:.2f} 秒）")
     save_country_cache(country_cache)
     return IP_LIST_FILE
 
