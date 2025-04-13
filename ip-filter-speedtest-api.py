@@ -107,9 +107,7 @@ COUNTRY_ALIASES = {
     'CHINA': 'CN', 'CHN': 'CN', '中国': 'CN',
     'VIET NAM': 'VN', 'VIETNAM': 'VN', '越南': 'VN',
     'THAILAND': 'TH', 'THA': 'TH', '泰国': 'TH',
-    'BURMA': '
-
-MM', 'MYANMAR': 'MM', '缅甸': 'MM',
+    'BURMA': 'MM', 'MYANMAR': 'MM', '缅甸': 'MM',
     'NORTH KOREA': 'KP', 'KOREA, DEMOCRATIC PEOPLE\'S REPUBLIC OF': 'KP', '朝鲜': 'KP'
 }
 
