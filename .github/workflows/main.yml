@@ -1,114 +1,18 @@
-name: Cloudflare IP 处理与测速
+name: Speed Test
 
-on:
-  schedule:
-    - cron: '0 0 * * 1' # 每周一 UTC 0 点运行
-  workflow_dispatch: # 支持手动触发
-
+on: [push, workflow_dispatch]
 jobs:
-  process-and-test:
+  speed-test:
     runs-on: ubuntu-latest
-    env:
-      MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      # 检出仓库代码
-      - name: 检出代码
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # 获取完整历史以支持变基
-
-      # 设置 Python 环境
-      - name: 设置 Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-
-      # 安装依赖
-      - name: 安装依赖
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests charset-normalizer geoip2
-          echo "依赖安装完成"
-
-      # 检查 Python 脚本语法
-      - name: 检查脚本语法
-        run: |
-          python3 -m py_compile ip-filter-speedtest-api.py
-          if [ $? -ne 0 ]; then
-            echo "脚本语法错误"
-            exit 1
-          fi
-
-      # 确保 iptest.sh 和 iptest 可执行
-      - name: 配置测速脚本
-        run: |
-          found=false
-          for script in iptest.sh iptest; do
-            if [ -f "$script" ]; then
-              chmod +x "$script"
-              echo "$script 已设置为可执行"
-              found=true
-            fi
-          done
-          if [ "$found" = false ]; then
-            echo "错误：未找到 iptest.sh 或 iptest"
-            exit 1
-          fi
-
-      # 第一步：生成 ip.txt
-      - name: 生成 ip.txt
-        timeout-minutes: 2
-        env:
-          PYTHONUNBUFFERED: 1
-        run: |
-          python3 ip-filter-speedtest-api.py
-          if [ -f ip.txt ]; then
-            if [ -s ip.txt ]; then
-              echo "ip.txt 已生成，节点数：$(wc -l < ip.txt)"
-            else
-              echo "ip.txt 为空"
-              exit 1
-            fi
-          else
-            echo "ip.txt 生成失败"
-            exit 1
-          fi
-
-      # 第二步：测速并生成 ip.csv 和 ips.txt
-      - name: 测速并生成 ip.csv 和 ips.txt
-        timeout-minutes: 30
-        env:
-          PYTHONUNBUFFERED: 1
-        run: |
-          python3 ip-filter-speedtest-api.py --generate-ips
-          if [ -f ip.csv ]; then
-            if [ -s ip.csv ]; then
-              echo "ip.csv 已生成，节点数：$(($(wc -l < ip.csv) - 1))"
-            else
-              echo "ip.csv 为空"
-              exit 1
-            fi
-          else
-            echo "ip.csv 生成失败"
-            exit 1
-          fi
-          if [ -f ips.txt ]; then
-            if [ -s ips.txt ]; then
-              echo "ips.txt 已生成，节点数：$(wc -l < ips.txt)"
-            else
-              echo "ips.txt 为空"
-              exit 1
-            fi
-          else
-            echo "ips.txt 生成失败"
-            exit 1
-          fi
-
-      # 第三步：提交所有文件
-      - name: 提交所有文件
-        timeout-minutes: 1
-        run: |
+      - run: pip install requests charset-normalizer geoip2
+      - run: python ip-filter-speedtest-api.py
+      - run: python ip-filter-speedtest-api.py --generate-ips
+      - run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
           files=""
@@ -120,7 +24,6 @@ jobs:
           if [ -n "$files" ]; then
             git add $files
             git commit -m "Final sync of ip.txt, ip.csv, ips.txt [skip ci]" || echo "无变化需要提交"
-            git pull --rebase
             git push
             echo "已提交和推送文件：$files"
           else
