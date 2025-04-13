@@ -43,41 +43,45 @@ jobs:
 
       - name: Validate input data
         run: |
-          echo "Downloading and validating input CSV..."
+          echo "Downloading and validating input CSV..." > input_size.txt
           curl -s -o input.csv $INPUT_URL
           lines=$(wc -l < input.csv)
-          echo "Input CSV lines: $lines" > input_size.txt
+          echo "Input CSV lines: $lines" >> input_size.txt
           head -n 5 input.csv > input_sample.txt
           echo "Input sample (first 5 lines):" >> input_size.txt
           cat input_sample.txt >> input_size.txt
-          if [ "$lines" -lt 100 ]; then
-            echo "Warning: Input contains fewer than 100 lines, may be insufficient" >> input_size.txt
+          echo "Checking desired countries..." >> input_size.txt
+          grep -E 'TW|JP|HK|SG|KR|IN|KP|VN|TH|MM' input.csv | wc -l > desired_count.txt
+          echo "Desired countries nodes: $(cat desired_count.txt)" >> input_size.txt
+          if [ "$lines" -lt 1000 ]; then
+            echo "Warning: Input contains fewer than 1000 lines" >> input_size.txt
           fi
         env:
           INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
 
-      - name: Test network environment
-        run: |
-          echo "Testing network environment..." > network_test.txt
-          echo "Ping test to 8.8.8.8:" >> network_test.txt
-          ping -c 3 -W 1 8.8.8.8 >> network_test.txt 2>&1 || echo "Ping failed, falling back to HTTP" >> network_test.txt
-          echo "HTTP latency to speed.cloudflare.com:" >> network_test.txt
-          curl -o /dev/null -s -w "HTTP latency: %{time_total}s\n" speed.cloudflare.com/__down?bytes=1000000 >> network_test.txt
-          cat network_test.txt
-
-      - name: Run IP filter and speed test
-        run: python ip-filter-speedtest-api.py --url=$INPUT_URL --target-nodes=500 --latency-threshold=500
+      - name: Run IP extraction
+        run: python ip-filter-speedtest-api.py --url=$INPUT_URL --extract-only
         env:
           INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
-        timeout-minutes: 9
+        timeout-minutes: 2
+
+      - name: Commit and push desired nodes file
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add desired_nodes.csv
+          git commit -m "Add desired_nodes.csv with desired countries" || echo "No changes to commit"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
 
       - name: Summarize results
         run: |
-          echo "ip.txt nodes: $(wc -l < ip.txt 2>/dev/null || echo 0)"
-          echo "ip.csv nodes: $(tail -n +2 ip.csv | wc -l 2>/dev/null || echo 0)"
-          echo "ips.txt nodes: $(wc -l < ips.txt 2>/dev/null || echo 0)"
-          echo "Log summary:"
-          grep -E "解析到|采样后|延迟测试完成|保留国家|过滤国家|ip.txt 国家分布|测速完成|错误|警告" speedtest.log || echo "No relevant log entries"
+          echo "desired_nodes.csv nodes: $(tail -n +2 desired_nodes.csv | wc -l 2>/dev/null || echo 0)" > summary.txt
+          echo "Log summary:" >> summary.txt
+          grep -E "解析到|生成 desired_nodes.csv|国家分布|错误|警告" speedtest.log >> summary.txt || echo "No relevant log entries" >> summary.txt
+          cat summary.txt
         continue-on-error: true
 
       - name: Upload results
@@ -85,11 +89,10 @@ jobs:
         with:
           name: speedtest-results
           path: |
-            ip.txt
-            ip.csv
-            ips.txt
+            desired_nodes.csv
             speedtest.log
             input_size.txt
             input_sample.txt
-            network_test.txt
+            desired_count.txt
+            summary.txt
           if-no-files-found: warn
