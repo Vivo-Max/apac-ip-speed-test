@@ -31,7 +31,10 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # 常量
-INPUT_URL = "https://raw.githubusercontent.com/gxiaobang/api/main/CloudflareST_darwin_amd64/nodes.csv"
+INPUT_URLS = [
+    "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv",
+    "https://raw.githubusercontent.com/Alvin9999/new-pac/master/nodes.csv",  # 备用
+]
 INPUT_FILE = "input.csv"
 IP_LIST_FILE = "ip.txt"
 FINAL_CSV = "ip.csv"
@@ -40,8 +43,9 @@ GEOIP_DB_URL = "https://github.com/P3TERX/GeoLite.mmdb/raw/main/GeoLite2-Country
 GEOIP_DB_PATH = Path("GeoLite2-Country.mmdb")
 DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
 REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2']
+DEFAULT_NODES = [("1.1.1.1", 443, "US")]  # 测试用
 
-# 国家映射（修复 NP 和 BG 的国旗）
+# 国家映射
 COUNTRY_LABELS = {
     'JP': ('🇯🇵', '日本'), 'KR': ('🇰🇷', '韩国'), 'SG': ('🇸🇬', '新加坡'),
     'TW': ('🇹🇼', '台湾'), 'HK': ('🇭🇰', '香港'), 'MY': ('🇲🇾', '马来西亚'),
@@ -56,27 +60,27 @@ COUNTRY_LABELS = {
     'PL': ('🇵🇱', '波兰'), 'UA': ('🇺🇦', '乌克兰'), 'CZ': ('🇨🇿', '捷克'),
     'HU': ('🇭🇺', '匈牙利'), 'RO': ('🇷🇴', '罗马尼亚'), 'SA': ('🇸🇦', '沙特阿拉伯'),
     'AE': ('🇦🇪', '阿联酋'), 'QA': ('🇶🇦', '卡塔尔'), 'IL': ('🇮🇱', '以色列'),
-    'TR': ('🇹🇷', '土耳其'), 'IR': ('🇮🇷', '伊朗'),
-    'CN': ('🇨🇳', '中国'), 'BD': ('🇧🇩', '孟加拉国'), 'PK': ('🇵🇰', '巴基斯坦'),
-    'LK': ('🇱🇰', '斯里兰卡'), 'NP': ('🇳🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
-    'MV': ('🇲🇻', '马尔代夫'), 'BN': ('🇧🇳', '文莱'), 'TL': ('🇹🇱', '东帝汶'),
-    'EG': ('🇪🇬', '埃及'), 'ZA': ('🇿🇦', '南非'), 'NG': ('🇳🇬', '尼日利亚'),
-    'KE': ('🇰🇪', '肯尼亚'), 'GH': ('🇬🇭', '加纳'), 'MA': ('🇲🇦', '摩洛哥'),
-    'DZ': ('🇩🇿', '阿尔及利亚'), 'TN': ('🇹🇳', '突尼斯'), 'AR': ('🇦🇷', '阿根廷'),
-    'CL': ('🇨🇱', '智利'), 'CO': ('🇨🇴', '哥伦比亚'), 'PE': ('🇵🇪', '秘鲁'),
-    'MX': ('🇲🇽', '墨西哥'), 'VE': ('🇻🇪', '委内瑞拉'), 'SE': ('🇸🇪', '瑞典'),
-    'NO': ('🇳🇴', '挪威'), 'DK': ('🇩🇰', '丹麦'), 'CH': ('🇨🇭', '瑞士'),
-    'AT': ('🇦🇹', '奥地利'), 'BE': ('🇧🇪', '比利时'), 'IE': ('🇮🇪', '爱尔兰'),
-    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇧🇬', '保加利亚'),
-    'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
-    'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
-    'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
-    'KG': ('🇰🇬', '吉尔吉斯斯坦'), 'TJ': ('🇹🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
-    'GE': ('🇬🇪', '格鲁吉亚'), 'AM': ('🇦🇲', '亚美尼亚'), 'AZ': ('🇦🇿', '阿塞拜疆'),
-    'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
-    'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
-    'IQ': ('🇮🇶', '伊拉克'), 'YE': ('🇾🇪', '也门'),
-    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
+    'TR': ('🇹🇷', '土耳其'), 'IR': ('🇮🇷', '伊朗'), 'CN': ('🇨🇳', '中国'),
+    'BD': ('🇧🇩', '孟加拉国'), 'PK': ('🇵🇰', '巴基斯坦'), 'LK': ('🇱🇰', '斯里兰卡'),
+    'NP': ('🇳🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'), 'MV': ('🇲🇻', '马尔代夫'),
+    'BN': ('🇧🇳', '文莱'), 'TL': ('🇹🇱', '东帝汶'), 'EG': ('🇪🇬', '埃及'),
+    'ZA': ('🇿🇦', '南非'), 'NG': ('🇳🇬', '尼日利亚'), 'KE': ('🇰🇪', '肯尼亚'),
+    'GH': ('🇬🇭', '加纳'), 'MA': ('🇲🇦', '摩洛哥'), 'DZ': ('🇩🇿', '阿尔及利亚'),
+    'TN': ('🇹🇳', '突尼斯'), 'AR': ('🇦🇷', '阿根廷'), 'CL': ('🇨🇱', '智利'),
+    'CO': ('🇨🇴', '哥伦比亚'), 'PE': ('🇵🇪', '秘鲁'), 'MX': ('🇲🇽', '墨西哥'),
+    'VE': ('🇻🇪', '委内瑞拉'), 'SE': ('🇸🇪', '瑞典'), 'NO': ('🇳🇴', '挪威'),
+    'DK': ('🇩🇰', '丹麦'), 'CH': ('🇨🇭', '瑞士'), 'AT': ('🇦🇹', '奥地利'),
+    'BE': ('🇧🇪', '比利时'), 'IE': ('🇮🇪', '爱尔兰'), 'PT': ('🇵🇹', '葡萄牙'),
+    'GR': ('🇬🇷', '希腊'), 'BG': ('🇧🇬', '保加利亚'), 'SK': ('🇸🇰', '斯洛伐克'),
+    'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'), 'RS': ('🇷🇸', '塞尔维亚'),
+    'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'), 'AL': ('🇦🇱', '阿尔巴尼亚'),
+    'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'), 'KG': ('🇰🇬', '吉尔吉斯斯坦'),
+    'TJ': ('🇹🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'), 'GE': ('🇬🇪', '格鲁吉亚'),
+    'AM': ('🇦🇲', '亚美尼亚'), 'AZ': ('🇦🇿', '阿塞拜疆'), 'KW': ('🇰🇼', '科威特'),
+    'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'), 'JO': ('🇯🇴', '约旦'),
+    'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'), 'IQ': ('🇮🇶', '伊拉克'),
+    'YE': ('🇾🇪', '也门'), 'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'),
+    'LT': ('🇱🇹', '立陶宛')
 }
 COUNTRY_ALIASES = {
     'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'KOREA, REPUBLIC OF': 'KR',
@@ -133,45 +137,14 @@ def download_geoip_database(url: str, dest_path: Path) -> bool:
         logger.error(f"下载 GeoIP 数据库失败: {e}")
         return False
 
-def download_geoip_database_maxmind(dest_path: Path) -> bool:
-    """从 MaxMind 下载 GeoIP 数据库（备用）"""
-    maxmind_key = os.getenv("MAXMIND_LICENSE_KEY")
-    if not maxmind_key:
-        logger.warning("未找到 MAXMIND_LICENSE_KEY，跳过 MaxMind 下载")
-        return False
-    url = f"https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key={maxmind_key}&suffix=tar.gz"
-    try:
-        response = requests.get(url, stream=True, timeout=30)
-        response.raise_for_status()
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            for chunk in response.iter_content(chunk_size=8192):
-                tmp.write(chunk)
-            tmp_path = tmp.name
-        import tarfile
-        with tarfile.open(tmp_path, "r:gz") as tar:
-            for member in tar.getmembers():
-                if member.name.endswith("GeoLite2-Country.mmdb"):
-                    tar.extract(member, dest_path.parent)
-                    extracted_path = dest_path.parent / member.name
-                    extracted_path.rename(dest_path)
-                    break
-        os.unlink(tmp_path)
-        logger.info(f"MaxMind GeoIP 数据库下载完成: {dest_path}")
-        return True
-    except Exception as e:
-        logger.error(f"MaxMind 下载失败: {e}")
-        return False
-
 def init_geoip_reader():
     """初始化 GeoIP 数据库"""
     global geoip_reader
     if not GEOIP_DB_PATH.exists():
         logger.info("GeoIP 数据库不存在，尝试下载")
         if not download_geoip_database(GEOIP_DB_URL, GEOIP_DB_PATH):
-            logger.warning("主下载源失败，尝试 MaxMind")
-            if not download_geoip_database_maxmind(GEOIP_DB_PATH):
-                logger.error("无法下载 GeoIP 数据库")
-                sys.exit(1)
+            logger.error("无法下载 GeoIP 数据库")
+            sys.exit(1)
     try:
         geoip_reader = Reader(GEOIP_DB_PATH)
         logger.info("GeoIP 数据库初始化完成")
@@ -215,23 +188,26 @@ def normalize_country(country: str) -> str:
             return code
     return ""
 
-def fetch_and_save_to_temp_file(url: str) -> Optional[str]:
-    """下载 URL 数据到临时文件"""
-    try:
-        retries = Retry(total=10, backoff_factor=2)
-        adapter = requests.adapters.HTTPAdapter(max_retries=retries)
-        session = requests.Session()
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        response = session.get(url, timeout=30)
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".csv", delete=False) as f:
-            f.write(response.text)
-            return f.name
-    except Exception as e:
-        logger.error(f"下载 URL 失败: {e}")
-        return None
+def fetch_and_save_to_temp_file(urls: List[str]) -> Optional[str]:
+    """尝试多个 URL 下载数据到临时文件"""
+    for url in urls:
+        try:
+            retries = Retry(total=5, backoff_factor=2)
+            adapter = requests.adapters.HTTPAdapter(max_retries=retries)
+            session = requests.Session()
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            response = session.get(url, timeout=30)
+            response.raise_for_status()
+            response.encoding = response.apparent_encoding
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".csv", delete=False) as f:
+                f.write(response.text)
+                logger.info(f"下载成功: {url} -> {f.name}")
+                return f.name
+        except Exception as e:
+            logger.warning(f"下载失败: {url} ({e})")
+    logger.error("所有 URL 下载失败")
+    return None
 
 def cleanup_temp_file(temp_file: str):
     """清理临时文件"""
@@ -246,7 +222,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
     """解析任意格式的节点数据"""
     ip_ports = []
     try:
-        # 尝试 JSON 格式
+        # JSON
         try:
             data = json.loads(content)
             if isinstance(data, list):
@@ -266,7 +242,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
         except json.JSONDecodeError:
             pass
 
-        # 尝试 CSV 或类 CSV 格式
+        # CSV 或类 CSV
         lines = content.splitlines()
         separators = [",", ";", "\t", "|"]
         for sep in separators:
@@ -286,7 +262,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                     logger.debug(f"解析为 CSV 格式，分隔符: {sep}")
                     return ip_ports
 
-        # 尝试纯文本
+        # 纯文本
         ip_port_pattern = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::|\s+)(\d+)")
         for line in lines:
             match = ip_port_pattern.search(line)
@@ -408,7 +384,6 @@ def run_speed_test() -> Optional[str]:
         "新加坡": "SG",
         "香港": "HK",
         "台北": "TW", "高雄": "TW",
-        # 可扩展其他城市
     }
 
     for line in ip_lines:
@@ -456,7 +431,6 @@ def run_speed_test() -> Optional[str]:
                 logger.warning(f"节点 {ip}:{port} 测速失败，返回码: {return_code}")
                 continue
 
-            # 解析 iptest 输出
             match = output_pattern.search(stdout)
             if match:
                 ip_out, port_out, location, latency = match.groups()
@@ -466,7 +440,7 @@ def run_speed_test() -> Optional[str]:
                 _, country_name = COUNTRY_LABELS.get(country, ('', location))
                 csv_rows.append([
                     ip, port, "", "", "", country, country_name, location,
-                    f"{latency} ms", "0.00"  # 下载速度未知
+                    f"{latency} ms", "0.00"
                 ])
             else:
                 logger.warning(f"节点 {ip}:{port} 输出格式不匹配")
@@ -505,7 +479,7 @@ def filter_speed_and_deduplicate(csv_file: str):
                         nodes.append((ip, int(port), country, latency, row))
                 except (ValueError, IndexError):
                     continue
-        nodes.sort(key=lambda x: x[3])  # 按延迟升序
+        nodes.sort(key=lambda x: x[3])
         unique_nodes = []
         seen = set()
         for node in nodes:
@@ -559,6 +533,7 @@ def generate_ips_file(csv_file: str):
         logger.error(f"写入 {IPS_FILE} 失败: {e}")
 
 def main():
+    """主函数"""
     start_time = time.time()
     logger.info("脚本开始")
     check_dependencies()
@@ -572,16 +547,16 @@ def main():
                 logger.info(f"从 {INPUT_FILE} 获取节点")
                 ip_ports = extract_ip_ports_from_file(INPUT_FILE)
             else:
-                logger.info(f"未找到 {INPUT_FILE}，从 URL {INPUT_URL} 下载")
-                temp_file = fetch_and_save_to_temp_file(INPUT_URL)
+                logger.info(f"未找到 {INPUT_FILE}，尝试下载")
+                temp_file = fetch_and_save_to_temp_file(INPUT_URLS)
                 if temp_file:
                     try:
                         ip_ports = extract_ip_ports_from_file(temp_file)
                     finally:
                         cleanup_temp_file(temp_file)
             if not ip_ports:
-                logger.error("未获取到有效节点")
-                sys.exit(1)
+                logger.warning("未获取到有效节点，使用默认节点")
+                ip_ports = DEFAULT_NODES
             ip_list_file = write_ip_list(ip_ports)
             if not ip_list_file:
                 sys.exit(1)
