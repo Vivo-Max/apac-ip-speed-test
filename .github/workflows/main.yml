@@ -55,7 +55,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         run: |
-          python 1707.py
+          python ip-filter-speedtest-api.py
           if [ -f ip.txt ]; then
             echo "ip.txt 已生成，节点数：$(wc -l < ip.txt)"
           else
@@ -68,7 +68,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 25
         run: |
-          python 1707.py --generate-ips
+          python ip-filter-speedtest-api.py --generate-ips
           if [ -f ip.csv ]; then
             echo "ip.csv 已生成，节点数：$(($(wc -l < ip.csv) - 1))"
           else
