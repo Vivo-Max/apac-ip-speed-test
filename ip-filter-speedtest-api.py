@@ -572,7 +572,7 @@ def run_speed_test() -> str:
             f.write("")
         return FINAL_CSV
 
-    max_time_seconds = 1200
+    max_time_seconds = 1800
     logger.info(f"开始测速，最大时间 {max_time_seconds} 秒")
     try:
         process = subprocess.Popen(
