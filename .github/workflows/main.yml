@@ -31,6 +31,15 @@ jobs:
           pip install requests charset-normalizer geoip2
           echo "依赖安装完成"
 
+      # 检查 Python 脚本语法
+      - name: 检查脚本语法
+        run: |
+          python3 -m py_compile ip-filter-speedtest-api.py
+          if [ $? -ne 0 ]; then
+            echo "脚本语法错误"
+            exit 1
+          fi
+
       # 确保 iptest.sh 和 iptest 可执行
       - name: 配置测速脚本
         continue-on-error: true
@@ -92,7 +101,7 @@ jobs:
           done
           if [ -n "$files" ]; then
             git add $files
-            git commit -m "Final sync of ip.txt, ip.csv, ips.txt" || echo "无变化需要提交"
+            git commit -m "Final sync of ip.txt, ip.csv, ips.txt [skip ci]" || echo "无变化需要提交"
             git pull --rebase
             git push || {
               echo "推送失败，尝试强制推送"
