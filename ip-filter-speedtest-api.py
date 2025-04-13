@@ -50,7 +50,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://www.google.com/"
 }
-DESIRED_COUNTRIES = []  # 空列表表示不过滤国家
+DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']  # 空列表表示不过滤国家
 REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2']
 COUNTRY_LABELS = {
     'JP': ('🇯🇵', '日本'), 'KR': ('🇰🇷', '韩国'), 'SG': ('🇸🇬', '新加坡'),
