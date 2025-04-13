@@ -41,20 +41,28 @@ jobs:
         run: chmod +x iptest.sh iptest
         continue-on-error: true
 
-      - name: Check input size
+      - name: Validate input data
         run: |
-          echo "Downloading input CSV..."
-          curl -s $INPUT_URL | wc -l > input_size.txt
-          echo "Input CSV lines: $(cat input_size.txt)"
+          echo "Downloading and validating input CSV..."
+          curl -s -o input.csv $INPUT_URL
+          lines=$(wc -l < input.csv)
+          echo "Input CSV lines: $lines" > input_size.txt
+          head -n 5 input.csv > input_sample.txt
+          echo "Input sample (first 5 lines):" >> input_size.txt
+          cat input_sample.txt >> input_size.txt
+          if [ "$lines" -lt 100 ]; then
+            echo "Warning: Input contains fewer than 100 lines, may be insufficient" >> input_size.txt
+          fi
         env:
           INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
 
-      - name: Test network latency
+      - name: Test network environment
         run: |
-          echo "Testing network latency to speed.cloudflare.com..."
-          curl -o /dev/null -s -w "HTTP latency: %{time_total}s\n" speed.cloudflare.com/__down?bytes=1000000 > network_test.txt
-          echo "Testing ping to 8.8.8.8..."
-          ping -c 3 -W 1 8.8.8.8 >> network_test.txt 2>&1 || echo "Ping failed, may use HTTP latency" >> network_test.txt
+          echo "Testing network environment..." > network_test.txt
+          echo "Ping test to 8.8.8.8:" >> network_test.txt
+          ping -c 3 -W 1 8.8.8.8 >> network_test.txt 2>&1 || echo "Ping failed, falling back to HTTP" >> network_test.txt
+          echo "HTTP latency to speed.cloudflare.com:" >> network_test.txt
+          curl -o /dev/null -s -w "HTTP latency: %{time_total}s\n" speed.cloudflare.com/__down?bytes=1000000 >> network_test.txt
           cat network_test.txt
 
       - name: Run IP filter and speed test
@@ -69,7 +77,8 @@ jobs:
           echo "ip.csv nodes: $(tail -n +2 ip.csv | wc -l 2>/dev/null || echo 0)"
           echo "ips.txt nodes: $(wc -l < ips.txt 2>/dev/null || echo 0)"
           echo "Log summary:"
-          grep -E "保留国家|过滤国家|ip.txt 国家分布|延迟测试完成|测速完成" speedtest.log || echo "No relevant log entries"
+          grep -E "解析到|采样后|延迟测试完成|保留国家|过滤国家|ip.txt 国家分布|测速完成|错误|警告" speedtest.log || echo "No relevant log entries"
+        continue-on-error: true
 
       - name: Upload results
         uses: actions/upload-artifact@v4
@@ -81,5 +90,6 @@ jobs:
             ips.txt
             speedtest.log
             input_size.txt
+            input_sample.txt
             network_test.txt
           if-no-files-found: warn
