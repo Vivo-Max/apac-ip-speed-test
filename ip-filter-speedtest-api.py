@@ -11,6 +11,7 @@ import time
 import json
 import argparse
 import random
+import concurrent.futures
 from typing import List, Tuple, Dict
 from collections import defaultdict
 from charset_normalizer import detect
@@ -512,28 +513,37 @@ def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
     except Exception:
         return ''
 
-def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
+def write_ip_list(ip_ports: List[Tuple[str, int, str]], max_nodes: int = 2000) -> str:
+    """
+    筛选符合目标国家的节点并写入 ip.txt 文件。
+
+    Args:
+        ip_ports: 包含 IP、端口和国家信息的节点列表 [(ip, port, country), ...]
+        max_nodes: 最大节点数量限制，默认为 2000
+
+    Returns:
+        生成的文件路径（成功时为 IP_LIST_FILE，失败时为 None）
+    """
     if not ip_ports:
         logger.error(f"无有效节点，无法生成 {IP_LIST_FILE}")
         return None
 
     start_time = time.time()
     country_cache = load_country_cache()
+
+    # 筛选符合目标国家的节点
     filtered_ip_ports = []
-    country_counts = defaultdict(int)
-    filtered_counts = defaultdict(int)
-    soft_max_nodes = 2000
-    logger.info(f"筛选 {len(ip_ports)} 个节点")
+    country_counts = defaultdict(int)  # 统计保留的国家
+    filtered_counts = defaultdict(int)  # 统计过滤的国家
+    logger.info(f"开始筛选 {len(ip_ports)} 个节点...")
 
     for ip, port, country in ip_ports:
-        # 优先使用数据源的国家信息
         if country and country in DESIRED_COUNTRIES:
             filtered_ip_ports.append((ip, port))
             country_counts[country] += 1
         elif country:
             filtered_counts[country] += 1
         else:
-            # 数据源无国家信息时，使用 GeoIP 补充
             country_from_geoip = get_country_from_ip(ip, country_cache)
             if country_from_geoip in DESIRED_COUNTRIES:
                 filtered_ip_ports.append((ip, port))
@@ -541,44 +551,45 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
             else:
                 filtered_counts[country_from_geoip] += 1
 
-    logger.info(f"保留国家: {dict(country_counts)}")
-    logger.info(f"过滤国家: {dict(filtered_counts)}")
+    # 输出筛选结果
+    total_retained = sum(country_counts.values())
+    total_filtered = sum(filtered_counts.values())
+    logger.info(f"筛选结果：保留 {total_retained} 个节点，过滤 {total_filtered} 个节点")
+    logger.info(f"保留国家分布：{dict(country_counts)}")
+    logger.info(f"过滤国家分布：{dict(filtered_counts)}")
 
-    if len(filtered_ip_ports) > soft_max_nodes:
-        logger.warning(f"节点数 {len(filtered_ip_ports)} 超软上限 {soft_max_nodes}，随机采样")
-        filtered_ip_ports = random.sample(filtered_ip_ports, soft_max_nodes)
+    # 限制节点数量
+    if len(filtered_ip_ports) > max_nodes:
+        logger.warning(f"节点数 {len(filtered_ip_ports)} 超过上限 {max_nodes}，执行随机采样")
+        filtered_ip_ports = random.sample(filtered_ip_ports, max_nodes)
+        # 重新统计国家分布
         country_counts = defaultdict(int)
         for ip, port in filtered_ip_ports:
             country = get_country_from_ip(ip, country_cache)
             if country in DESIRED_COUNTRIES:
                 country_counts[country] += 1
-        logger.info(f"采样后: {len(filtered_ip_ports)} 节点，国家分布: {dict(country_counts)}")
+        logger.info(f"采样后：保留 {len(filtered_ip_ports)} 个节点，国家分布：{dict(country_counts)}")
 
     if not filtered_ip_ports:
         logger.error(f"无符合 {DESIRED_COUNTRIES} 的节点")
         return None
 
+    # 写入 ip.txt 文件
     with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
         for ip, port in filtered_ip_ports:
             f.write(f"{ip} {port}\n")
-    logger.info(f"生成 {IP_LIST_FILE}，{len(filtered_ip_ports)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
-
-    # 立即推送 ip.txt 到仓库
-    try:
-        subprocess.run(["git", "config", "--global", "user.name", "GitHub Actions Bot"], check=True)
-        subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
-        subprocess.run(["git", "add", IP_LIST_FILE], check=True)
-        subprocess.run(["git", "commit", "-m", "Add ip.txt with raw nodes"], check=True)
-        subprocess.run(["git", "pull", "--rebase"], check=True)
-        subprocess.run(["git", "push"], check=True)
-        logger.info(f"已推送 {IP_LIST_FILE} 到仓库")
-    except subprocess.CalledProcessError as e:
-        logger.warning(f"推送 {IP_LIST_FILE} 失败: {e}")
+    logger.info(f"成功生成 {IP_LIST_FILE}，包含 {len(filtered_ip_ports)} 个节点（耗时：{time.time() - start_time:.2f} 秒）")
 
     save_country_cache(country_cache)
     return IP_LIST_FILE
 
 def run_speed_test() -> str:
+    """
+    运行测速脚本，生成 ip.csv 文件。
+
+    Returns:
+        生成的文件路径（成功时为 FINAL_CSV，失败时为 None）
+    """
     if not SPEEDTEST_SCRIPT:
         logger.error("测速脚本未找到")
         return None
@@ -587,20 +598,25 @@ def run_speed_test() -> str:
         return None
 
     start_time = time.time()
-    batch_size = 20
-    max_time_seconds = 480
-    temp_dir = tempfile.mkdtemp()
-    output_files = []
-
     with open(IP_LIST_FILE, "r", encoding="utf-8") as f:
         ip_lines = f.readlines()
-    logger.info(f"ip.txt 包含 {len(ip_lines)} 个节点")
+    total_nodes = len(ip_lines)
+    batch_size = min(100, max(20, total_nodes // 20))  # 动态批次大小：20-100
+    max_time_seconds = 1200  # 总时间限制：20 分钟
+    max_workers = 4  # 并行批次数量
+    logger.info(f"ip.txt 包含 {total_nodes} 个节点，批次大小 {batch_size}，最大并行批次 {max_workers}")
 
-    for i in range(0, len(ip_lines), batch_size):
+    temp_dir = tempfile.mkdtemp()
+    output_files = []
+    batches = [(i, ip_lines[i:i + batch_size]) for i in range(0, len(ip_lines), batch_size)]
+    logger.info(f"总批次数量: {len(batches)}")
+
+    def run_batch(i, batch_lines):
+        # 检查总时间是否超限
         if time.time() - start_time > max_time_seconds:
-            logger.warning(f"接近时间限制 ({max_time_seconds} 秒)，停止测速")
-            break
-        batch_lines = ip_lines[i:i + batch_size]
+            logger.warning(f"总时间超过 {max_time_seconds} 秒，取消批次 {i//batch_size + 1}")
+            return None
+
         batch_file = os.path.join(temp_dir, f"batch_{i}.txt")
         batch_output = os.path.join(temp_dir, f"batch_{i}.csv")
         with open(batch_file, "w", encoding="utf-8") as f:
@@ -611,14 +627,14 @@ def run_speed_test() -> str:
                 SPEEDTEST_SCRIPT,
                 f"-file={batch_file}",
                 "-tls=true",
-                "-speedtest=3",
-                "-speedlimit=8",
-                "-url=speed.cloudflare.com/__down?bytes=1000000",
-                "-max=10",
-                "-timeout=10",
+                "-speedtest=10",  # 测速协程数
+                "-speedlimit=8",  # 最低速度 8 MB/s
+                "-url=speed.cloudflare.com/__down?bytes=500000",  # 测速文件 500KB
+                "-max=100",  # 最大协程数
+                "-timeout=3",  # 单次请求超时 3 秒
                 f"-outfile={batch_output}"
             ]
-            logger.info(f"批次 {i//batch_size + 1} 命令: {' '.join(cmd)}")
+            logger.info(f"批次 {i//batch_size + 1} 开始，命令: {' '.join(cmd)}")
             process = subprocess.Popen(
                 ' '.join(cmd),
                 stdout=subprocess.PIPE,
@@ -640,24 +656,51 @@ def run_speed_test() -> str:
             stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines))
             stdout_thread.start()
             stderr_thread.start()
+            # 动态调整单批次超时
+            batch_timeout = min(20, len(batch_lines) * 1)  # 每节点约 1 秒
+            while True:
+                if time.time() - start_time > max_time_seconds:
+                    logger.warning(f"总时间超过 {max_time_seconds} 秒，中断批次 {i//batch_size + 1}")
+                    process.kill()
+                    return None
+                try:
+                    return_code = process.wait(timeout=1)  # 每秒检查一次
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
             stdout_thread.join()
             stderr_thread.join()
-            return_code = process.wait(timeout=60)
             stdout = ''.join(stdout_lines)
             stderr = ''.join(stderr_lines)
             logger.info(f"批次 {i//batch_size + 1} stdout: {stdout}")
             if stderr:
                 logger.warning(f"批次 {i//batch_size + 1} stderr: {stderr}")
-            logger.info(f"批次 {i//batch_size + 1} 耗时: {time.time() - batch_start_time:.2f} 秒")
+            logger.info(f"批次 {i//batch_size + 1} 完成，耗时: {time.time() - batch_start_time:.2f} 秒")
             if return_code == 0 and os.path.exists(batch_output):
-                output_files.append(batch_output)
+                return batch_output
             else:
                 logger.error(f"批次 {i//batch_size + 1} 失败")
+                return None
         except subprocess.TimeoutExpired:
             logger.error(f"批次 {i//batch_size + 1} 超时")
             process.kill()
+            return None
         except Exception as e:
             logger.error(f"批次 {i//batch_size + 1} 失败: {e}")
+            return None
+
+    # 并行处理批次
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_batch = {executor.submit(run_batch, i, batch_lines): i for i, batch_lines in batches}
+        for future in concurrent.futures.as_completed(future_to_batch):
+            if time.time() - start_time > max_time_seconds:
+                logger.warning(f"总时间超过 {max_time_seconds} 秒，停止剩余批次")
+                for f in future_to_batch:
+                    f.cancel()  # 取消未开始的批次
+                break
+            batch_output = future.result()
+            if batch_output:
+                output_files.append(batch_output)
 
     if output_files:
         with open(FINAL_CSV, "w", encoding="utf-8") as outfile:
@@ -674,6 +717,9 @@ def run_speed_test() -> str:
     return None
 
 def filter_speed_and_deduplicate(csv_file: str):
+    """
+    去重并按下载速度排序 ip.csv 文件。
+    """
     start_time = time.time()
     if not os.path.exists(csv_file):
         logger.info(f"{csv_file} 不存在")
@@ -705,6 +751,9 @@ def filter_speed_and_deduplicate(csv_file: str):
     logger.info(f"{csv_file} 处理完成，{len(final_rows)} 条记录 (耗时: {time.time() - start_time:.2f} 秒)")
 
 def generate_ips_file(csv_file: str):
+    """
+    从 ip.csv 生成带国家标签的 ips.txt 文件。
+    """
     start_time = time.time()
     if not os.path.exists(csv_file):
         logger.info(f"{csv_file} 不存在")
@@ -741,6 +790,9 @@ def generate_ips_file(csv_file: str):
     save_country_cache(country_cache)
 
 def main():
+    """
+    主函数，执行 IP 筛选和测速流程。
+    """
     start_time = time.time()
     logger.info("脚本开始")
     check_dependencies()
