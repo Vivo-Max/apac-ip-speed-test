@@ -1,8 +1,8 @@
 name: Speed Test
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'  # 每天 UTC 0:00 运行（可调整）
+    - cron: '0 0 * * *'
 jobs:
   speed-test:
     runs-on: ubuntu-latest
@@ -12,7 +12,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'  # 使用 3.11，避免 3.13 潜在兼容问题
+          python-version: '3.11'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
