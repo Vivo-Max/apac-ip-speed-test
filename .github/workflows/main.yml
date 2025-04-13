@@ -38,11 +38,13 @@ jobs:
           curl -s -o input.csv $INPUT_URL
         env:
           INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
 
       - name: Extract nodes and generate ip.txt
         run: python ip-filter-speedtest-api.py --url=$INPUT_URL
         env:
           INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
         timeout-minutes: 2
 
       - name: Run speed test and generate ips.txt
