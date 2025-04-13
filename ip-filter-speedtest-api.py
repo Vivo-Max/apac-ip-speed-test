@@ -41,7 +41,7 @@ FINAL_CSV = "ip.csv"
 INPUT_FILE = "input.csv"
 TEMP_FILE = os.path.join(tempfile.gettempdir(), "temp_proxy.csv")
 TEMP_FILE_CACHE_DURATION = 3600
-INPUT_URL = os.getenv("INPUT_URL", "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv")
+INPUT_URL = "https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv"  # 硬编码 URL
 COUNTRY_CACHE_FILE = "country_cache.json"
 GEOIP_DB_PATH = Path(os.path.abspath("GeoLite2-Country.mmdb"))
 GEOIP_DB_URL = "https://github.com/P3TERX/GeoLite.mmdb/releases/download/2025.04.10/GeoLite2-Country.mmdb"
@@ -52,7 +52,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://www.google.com/"
 }
-DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']  # 保留指定国家筛选
+DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
 REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2']
 COUNTRY_LABELS = {
     'JP': ('🇯🇵', '日本'), 'KR': ('🇰🇷', '韩国'), 'SG': ('🇸🇬', '新加坡'),
@@ -514,16 +514,6 @@ def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
         return ''
 
 def write_ip_list(ip_ports: List[Tuple[str, int, str]], max_nodes: int = 2000) -> str:
-    """
-    筛选符合目标国家的节点并写入 ip.txt 文件，并在生成后即时推送。
-
-    Args:
-        ip_ports: 包含 IP、端口和国家信息的节点列表 [(ip, port, country), ...]
-        max_nodes: 最大节点数量限制，默认为 2000
-
-    Returns:
-        生成的文件路径（成功时为 IP_LIST_FILE，失败时为 None）
-    """
     if not ip_ports:
         logger.error(f"无有效节点，无法生成 {IP_LIST_FILE}")
         return None
@@ -531,10 +521,9 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]], max_nodes: int = 2000) -
     start_time = time.time()
     country_cache = load_country_cache()
 
-    # 筛选符合目标国家的节点
     filtered_ip_ports = []
-    country_counts = defaultdict(int)  # 统计保留的国家
-    filtered_counts = defaultdict(int)  # 统计过滤的国家
+    country_counts = defaultdict(int)
+    filtered_counts = defaultdict(int)
     logger.info(f"开始筛选 {len(ip_ports)} 个节点...")
 
     for ip, port, country in ip_ports:
@@ -551,18 +540,15 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]], max_nodes: int = 2000) -
             else:
                 filtered_counts[country_from_geoip] += 1
 
-    # 输出筛选结果
     total_retained = sum(country_counts.values())
     total_filtered = sum(filtered_counts.values())
     logger.info(f"筛选结果：保留 {total_retained} 个节点，过滤 {total_filtered} 个节点")
     logger.info(f"保留国家分布：{dict(country_counts)}")
     logger.info(f"过滤国家分布：{dict(filtered_counts)}")
 
-    # 限制节点数量
     if len(filtered_ip_ports) > max_nodes:
         logger.warning(f"节点数 {len(filtered_ip_ports)} 超过上限 {max_nodes}，执行随机采样")
         filtered_ip_ports = random.sample(filtered_ip_ports, max_nodes)
-        # 重新统计国家分布
         country_counts = defaultdict(int)
         for ip, port in filtered_ip_ports:
             country = get_country_from_ip(ip, country_cache)
@@ -574,29 +560,23 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]], max_nodes: int = 2000) -
         logger.error(f"无符合 {DESIRED_COUNTRIES} 的节点")
         return None
 
-    # 写入 ip.txt 文件到本地
     with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
         for ip, port in filtered_ip_ports:
             f.write(f"{ip} {port}\n")
     logger.info(f"成功生成 {IP_LIST_FILE}，包含 {len(filtered_ip_ports)} 个节点（耗时：{time.time() - start_time:.2f} 秒）")
 
-    # 即时推送 ip.txt 到远程仓库
     try:
         logger.info(f"开始推送 {IP_LIST_FILE} 到远程仓库")
         subprocess.run(["git", "config", "--global", "user.name", "GitHub Actions Bot"], check=True)
         subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
-        # 检查是否有未暂存的更改
         result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
         if result.stdout:
             logger.info("发现未暂存的更改，自动提交")
             subprocess.run(["git", "add", "."], check=True)
             subprocess.run(["git", "commit", "-m", "Auto-commit unstaged changes before pushing ip.txt"], check=True)
-        # 提交 ip.txt
         subprocess.run(["git", "add", IP_LIST_FILE], check=True)
         subprocess.run(["git", "commit", "-m", "Add ip.txt with raw nodes"], check=True)
-        # 拉取最新代码并变基
         subprocess.run(["git", "pull", "--rebase"], check=True)
-        # 推送
         subprocess.run(["git", "push"], check=True)
         logger.info(f"成功推送 {IP_LIST_FILE} 到远程仓库")
     except subprocess.CalledProcessError as e:
@@ -612,12 +592,6 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]], max_nodes: int = 2000) -
     return IP_LIST_FILE
 
 def run_speed_test() -> str:
-    """
-    运行测速脚本，生成 ip.csv 文件。
-
-    Returns:
-        生成的文件路径（成功时为 FINAL_CSV，失败时为 None）
-    """
     if not SPEEDTEST_SCRIPT:
         logger.error("测速脚本未找到")
         return None
@@ -629,9 +603,9 @@ def run_speed_test() -> str:
     with open(IP_LIST_FILE, "r", encoding="utf-8") as f:
         ip_lines = f.readlines()
     total_nodes = len(ip_lines)
-    batch_size = min(100, max(20, total_nodes // 20))  # 动态批次大小：20-100
-    max_time_seconds = 1200  # 总时间限制：20 分钟
-    max_workers = 4  # 并行批次数量
+    batch_size = min(100, max(20, total_nodes // 20))
+    max_time_seconds = 1200
+    max_workers = 4
     logger.info(f"ip.txt 包含 {total_nodes} 个节点，批次大小 {batch_size}，最大并行批次 {max_workers}")
 
     temp_dir = tempfile.mkdtemp()
@@ -640,7 +614,6 @@ def run_speed_test() -> str:
     logger.info(f"总批次数量: {len(batches)}")
 
     def run_batch(i, batch_lines):
-        # 检查总时间是否超限
         if time.time() - start_time > max_time_seconds:
             logger.warning(f"总时间超过 {max_time_seconds} 秒，取消批次 {i//batch_size + 1}")
             return None
@@ -655,11 +628,11 @@ def run_speed_test() -> str:
                 SPEEDTEST_SCRIPT,
                 f"-file={batch_file}",
                 "-tls=true",
-                "-speedtest=10",  # 测速协程数
-                "-speedlimit=8",  # 最低速度 8 MB/s
-                "-url=speed.cloudflare.com/__down?bytes=500000",  # 测速文件 500KB
-                "-max=100",  # 最大协程数
-                "-timeout=3",  # 单次请求超时 3 秒
+                "-speedtest=10",
+                "-speedlimit=8",
+                "-url=speed.cloudflare.com/__down?bytes=500000",
+                "-max=100",
+                "-timeout=3",
                 f"-outfile={batch_output}"
             ]
             logger.info(f"批次 {i//batch_size + 1} 开始，命令: {' '.join(cmd)}")
@@ -684,15 +657,14 @@ def run_speed_test() -> str:
             stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines))
             stdout_thread.start()
             stderr_thread.start()
-            # 动态调整单批次超时
-            batch_timeout = min(20, len(batch_lines) * 1)  # 每节点约 1 秒
+            batch_timeout = min(20, len(batch_lines) * 1)
             while True:
                 if time.time() - start_time > max_time_seconds:
                     logger.warning(f"总时间超过 {max_time_seconds} 秒，中断批次 {i//batch_size + 1}")
                     process.kill()
                     return None
                 try:
-                    return_code = process.wait(timeout=1)  # 每秒检查一次
+                    return_code = process.wait(timeout=1)
                     break
                 except subprocess.TimeoutExpired:
                     continue
@@ -717,14 +689,13 @@ def run_speed_test() -> str:
             logger.error(f"批次 {i//batch_size + 1} 失败: {e}")
             return None
 
-    # 并行处理批次
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_batch = {executor.submit(run_batch, i, batch_lines): i for i, batch_lines in batches}
         for future in concurrent.futures.as_completed(future_to_batch):
             if time.time() - start_time > max_time_seconds:
                 logger.warning(f"总时间超过 {max_time_seconds} 秒，停止剩余批次")
                 for f in future_to_batch:
-                    f.cancel()  # 取消未开始的批次
+                    f.cancel()
                 break
             batch_output = future.result()
             if batch_output:
@@ -745,9 +716,6 @@ def run_speed_test() -> str:
     return None
 
 def filter_speed_and_deduplicate(csv_file: str):
-    """
-    去重并按下载速度排序 ip.csv 文件。
-    """
     start_time = time.time()
     if not os.path.exists(csv_file):
         logger.info(f"{csv_file} 不存在")
@@ -779,9 +747,6 @@ def filter_speed_and_deduplicate(csv_file: str):
     logger.info(f"{csv_file} 处理完成，{len(final_rows)} 条记录 (耗时: {time.time() - start_time:.2f} 秒)")
 
 def generate_ips_file(csv_file: str):
-    """
-    从 ip.csv 生成带国家标签的 ips.txt 文件。
-    """
     start_time = time.time()
     if not os.path.exists(csv_file):
         logger.info(f"{csv_file} 不存在")
@@ -818,14 +783,10 @@ def generate_ips_file(csv_file: str):
     save_country_cache(country_cache)
 
 def main():
-    """
-    主函数，执行 IP 筛选和测速流程。
-    """
     start_time = time.time()
     logger.info("脚本开始")
     check_dependencies()
     parser = argparse.ArgumentParser(description="IP Filter and Speed Test")
-    parser.add_argument("--url", default=INPUT_URL)
     parser.add_argument("--generate-ips", action="store_true")
     args = parser.parse_args()
     try:
@@ -835,8 +796,8 @@ def main():
                 logger.info(f"从 {INPUT_FILE} 获取节点")
                 ip_ports = extract_ip_ports_from_file(INPUT_FILE)
             else:
-                logger.info(f"未找到 {INPUT_FILE}，从 URL {args.url} 下载")
-                temp_file = fetch_and_save_to_temp_file(args.url)
+                logger.info(f"未找到 {INPUT_FILE}，从 URL {INPUT_URL} 下载")
+                temp_file = fetch_and_save_to_temp_file(INPUT_URL)
                 if temp_file:
                     ip_ports = extract_ip_ports_from_file(temp_file)
             if not ip_ports:
@@ -851,6 +812,29 @@ def main():
                 sys.exit(1)
             filter_speed_and_deduplicate(csv_file)
             generate_ips_file(csv_file)
+            # 推送 ip.csv 和 ips.txt
+            try:
+                logger.info(f"开始推送 {FINAL_CSV} 和 {IPS_FILE} 到远程仓库")
+                subprocess.run(["git", "config", "--global", "user.name", "GitHub Actions Bot"], check=True)
+                subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
+                result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+                if result.stdout:
+                    logger.info("发现未暂存的更改，自动提交")
+                    subprocess.run(["git", "add", "."], check=True)
+                    subprocess.run(["git", "commit", "-m", "Auto-commit unstaged changes before pushing"], check=True)
+                subprocess.run(["git", "add", FINAL_CSV, IPS_FILE], check=True)
+                subprocess.run(["git", "commit", "-m", "Add ip.csv and ips.txt with speed test results"], check=True)
+                subprocess.run(["git", "pull", "--rebase"], check=True)
+                subprocess.run(["git", "push"], check=True)
+                logger.info(f"成功推送 {FINAL_CSV} 和 {IPS_FILE} 到远程仓库")
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"推送失败: {e}")
+                try:
+                    logger.info("尝试强制推送")
+                    subprocess.run(["git", "push", "--force"], check=True)
+                    logger.info(f"强制推送成功")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"强制推送失败: {e}")
         logger.info(f"脚本完成 (总耗时: {time.time() - start_time:.2f} 秒)")
     finally:
         close_geoip_reader()
