@@ -68,7 +68,7 @@ COUNTRY_LABELS = {
     'AE': ('🇦🇪', '阿联酋'), 'QA': ('🇶🇦', '卡塔尔'), 'IL': ('🇮🇱', '以色列'),
     'TR': ('🇹🇷', '土耳其'), 'IR': ('🇮🇷', '伊朗'),
     'CN': ('🇨🇳', '中国'), 'BD': ('🇧🇩', '孟加拉国'), 'PK': ('🇵🇰', '巴基斯坦'),
-    'LK': ('🇱🇰', '斯里兰卡'), 'NP': ('🇳🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
+    'LK': ('🇱🇰', '斯里兰卡'), 'NP': ('🇵🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
     'MV': ('🇲🇻', '马尔代夫'), 'BN': ('🇧🇳', '文莱'), 'TL': ('🇹🇱', '东帝汶'),
     'EG': ('🇪🇬', '埃及'), 'ZA': ('🇿🇦', '南非'), 'NG': ('🇳🇬', '尼日利亚'),
     'KE': ('🇰🇪', '肯尼亚'), 'GH': ('🇬🇭', '加纳'), 'MA': ('🇲🇦', '摩洛哥'),
@@ -77,7 +77,7 @@ COUNTRY_LABELS = {
     'MX': ('🇲🇽', '墨西哥'), 'VE': ('🇻🇪', '委内瑞拉'), 'SE': ('🇸🇪', '瑞典'),
     'NO': ('🇳🇴', '挪威'), 'DK': ('🇩🇰', '丹麦'), 'CH': ('🇨🇭', '瑞士'),
     'AT': ('🇦🇹', '奥地利'), 'BE': ('🇧🇪', '比利时'), 'IE': ('🇮🇪', '爱尔兰'),
-    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇧🇬', '保加利亚'),
+    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇬🇬', '保加利亚'),
     'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
     'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
     'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
@@ -576,7 +576,8 @@ def run_speed_test() -> str:
             text=True,
             shell=True,
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
+            bufsize=1  # 行缓冲
         )
         stdout_lines, stderr_lines = [], []
         def read_stream(stream, lines):
@@ -585,7 +586,7 @@ def run_speed_test() -> str:
                 if not line:
                     break
                 lines.append(line)
-                logger.debug(line.strip())
+                logger.info(line.strip())  # 改为 INFO 级别
         stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines))
         stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines))
         stdout_thread.start()
@@ -675,12 +676,12 @@ def generate_ips_file(csv_file: str):
             reader = csv.reader(f)
             next(reader)  # 跳过表头
             for row in reader:
-                if len(row) < 2:
+                if len(row) < 6:  # 确保有国际代码
                     continue
                 ip, port = row[0], row[1]
+                country = row[5].strip()  # 直接使用 ip.csv 的国际代码
                 if not is_valid_ip(ip) or not is_valid_port(port):
                     continue
-                country = get_country_from_ip(ip, country_cache)
                 if not DESIRED_COUNTRIES or country in DESIRED_COUNTRIES:
                     final_nodes.append((ip, int(port), country))
     except Exception as e:
