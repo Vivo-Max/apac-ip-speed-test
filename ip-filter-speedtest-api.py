@@ -515,7 +515,7 @@ def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
 
 def write_ip_list(ip_ports: List[Tuple[str, int, str]], max_nodes: int = 2000) -> str:
     """
-    筛选符合目标国家的节点并写入 ip.txt 文件。
+    筛选符合目标国家的节点并写入 ip.txt 文件，并在生成后即时推送。
 
     Args:
         ip_ports: 包含 IP、端口和国家信息的节点列表 [(ip, port, country), ...]
@@ -574,11 +574,39 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]], max_nodes: int = 2000) -
         logger.error(f"无符合 {DESIRED_COUNTRIES} 的节点")
         return None
 
-    # 写入 ip.txt 文件
+    # 写入 ip.txt 文件到本地
     with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
         for ip, port in filtered_ip_ports:
             f.write(f"{ip} {port}\n")
     logger.info(f"成功生成 {IP_LIST_FILE}，包含 {len(filtered_ip_ports)} 个节点（耗时：{time.time() - start_time:.2f} 秒）")
+
+    # 即时推送 ip.txt 到远程仓库
+    try:
+        logger.info(f"开始推送 {IP_LIST_FILE} 到远程仓库")
+        subprocess.run(["git", "config", "--global", "user.name", "GitHub Actions Bot"], check=True)
+        subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
+        # 检查是否有未暂存的更改
+        result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+        if result.stdout:
+            logger.info("发现未暂存的更改，自动提交")
+            subprocess.run(["git", "add", "."], check=True)
+            subprocess.run(["git", "commit", "-m", "Auto-commit unstaged changes before pushing ip.txt"], check=True)
+        # 提交 ip.txt
+        subprocess.run(["git", "add", IP_LIST_FILE], check=True)
+        subprocess.run(["git", "commit", "-m", "Add ip.txt with raw nodes"], check=True)
+        # 拉取最新代码并变基
+        subprocess.run(["git", "pull", "--rebase"], check=True)
+        # 推送
+        subprocess.run(["git", "push"], check=True)
+        logger.info(f"成功推送 {IP_LIST_FILE} 到远程仓库")
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"推送 {IP_LIST_FILE} 失败: {e}")
+        try:
+            logger.info("尝试强制推送")
+            subprocess.run(["git", "push", "--force"], check=True)
+            logger.info(f"强制推送 {IP_LIST_FILE} 成功")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"强制推送 {IP_LIST_FILE} 失败: {e}")
 
     save_country_cache(country_cache)
     return IP_LIST_FILE
