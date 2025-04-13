@@ -308,7 +308,7 @@ def detect_delimiter(lines: List[str]) -> str:
     return None
 
 def is_valid_ip(ip: str) -> bool:
-    ipv4_pattern = re.compile(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+    ipv4_pattern = re.compile(r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
     ipv6_pattern = re.compile(r'^(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$')
     return bool(ipv4_pattern.match(ip) or ipv6_pattern.match(ip.strip('[]')))
 
@@ -695,7 +695,7 @@ def filter_speed_and_deduplicate(csv_file: str):
         os.remove(csv_file)
         return
     try:
-        final_rows.sort(key=lambda x: float(x[9]) if x[9] else 0.0, reverse=True)
+        final_rows.sort(key=lambda x: float(x[9]) if x[9] and x[9].replace('.', '', 1).isdigit() else 0.0, reverse=True)
     except Exception as e:
         logger.warning(f"排序失败: {e}")
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
