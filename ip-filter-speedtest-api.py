@@ -89,7 +89,7 @@ COUNTRY_LABELS = {
     'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
     'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
     'IQ': ('🇮🇶', '伊拉克'), 'YE': ('🇾🇪', '也门'),
-    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('�LV', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
+    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
 }
 COUNTRY_ALIASES = {
     'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'KOREA, REPUBLIC OF': 'KR',
@@ -538,8 +538,40 @@ def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
             return country_code
         return ''
     except Exception as e:
-        logger.error(f"查询 IP {ip} 国家失败: {e}")
+        logger.debug(f"查询 IP {ip} 国家失败: {e}")
         return ''
+
+def extract_desired_nodes(ip_ports: List[Tuple[str, int, str]], output_file: str = "desired_nodes.csv") -> bool:
+    """筛选指定国家的节点，写入 CSV 文件"""
+    start_time = time.time()
+    country_cache = load_country_cache()
+    desired_nodes = []
+    country_counts = defaultdict(int)
+
+    for ip, port, country in ip_ports:
+        country_from_geoip = country or get_country_from_ip(ip, country_cache)
+        if country_from_geoip in DESIRED_COUNTRIES:
+            desired_nodes.append((ip, port, country_from_geoip))
+            country_counts[country_from_geoip] += 1
+            logger.debug(f"保留节点 {ip}:{port} ({country_from_geoip})")
+        else:
+            logger.debug(f"过滤节点 {ip}:{port} (GeoIP: {country_from_geoip or '未知'})")
+
+    if not desired_nodes:
+        logger.error(f"无符合 {DESIRED_COUNTRIES} 的节点")
+        return False
+
+    # 写入 CSV
+    with open(output_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["IP", "端口", "国家"])
+        for ip, port, country in desired_nodes:
+            writer.writerow([ip, port, country])
+
+    logger.info(f"生成 {output_file}，包含 {len(desired_nodes)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    logger.info(f"国家分布: {dict(country_counts)}")
+    save_country_cache(country_cache)
+    return True
 
 def test_initial_latency(ip_ports: List[Tuple[str, int, str]], max_workers: int = 50, timeout: int = 7, use_http: bool = False) -> List[Tuple[str, int, str, float]]:
     """并行测试节点延迟（ping 或 HTTP）"""
@@ -551,22 +583,25 @@ def test_initial_latency(ip_ports: List[Tuple[str, int, str]], max_workers: int 
     if use_http:
         def test_node(ip: str, port: int, country: str):
             try:
-                # 尝试 HTTPS 和 HTTP，优先常用端口
                 for scheme in ['https', 'http']:
                     for test_port in [port, 443, 80]:
-                        start = time.time()
-                        url = f"{scheme}://{ip}:{test_port}"
-                        response = requests.head(url, timeout=timeout, headers=HEADERS, allow_redirects=True)
-                        if response.status_code < 400:
-                            latency = (time.time() - start) * 1000  # ms
-                            result_queue.put((ip, port, country, latency))
-                            logger.debug(f"节点 {ip}:{port} {scheme}://{ip}:{test_port} 延迟: {latency:.2f} ms")
-                            return
+                        for attempt in range(2):
+                            start = time.time()
+                            url = f"{scheme}://{ip}:{test_port}"
+                            try:
+                                response = requests.head(url, timeout=timeout, headers=HEADERS, allow_redirects=True)
+                                if response.status_code < 400:
+                                    latency = (time.time() - start) * 1000
+                                    result_queue.put((ip, port, country, latency))
+                                    logger.debug(f"节点 {ip}:{port} {scheme}://{ip}:{test_port} 延迟: {latency:.2f} ms (尝试 {attempt + 1})")
+                                    return
+                            except requests.exceptions.RequestException as e:
+                                logger.debug(f"节点 {ip}:{port} {scheme}://{ip}:{test_port} 失败: {str(e)} (尝试 {attempt + 1})")
                 result_queue.put((ip, port, country, float('inf')))
                 logger.debug(f"节点 {ip}:{port} 所有协议/端口测试失败")
             except Exception as e:
                 result_queue.put((ip, port, country, float('inf')))
-                logger.debug(f"节点 {ip}:{port} HTTP 测试失败: {str(e)}")
+                logger.debug(f"节点 {ip}:{port} 测试异常: {str(e)}")
     else:
         def test_node(ip: str, port: int, country: str):
             try:
@@ -597,6 +632,8 @@ def test_initial_latency(ip_ports: List[Tuple[str, int, str]], max_workers: int 
 
     valid_count = len([r for r in results if r[3] != float('inf')])
     logger.info(f"延迟测试完成，耗时: {time.time() - start_time:.2f} 秒，测试节点: {len(ip_ports)}，有效节点: {valid_count}")
+    if valid_count == 0:
+        logger.warning("所有节点延迟测试失败，可能由于网络限制或节点不可用")
     return results
 
 def write_ip_list(ip_ports: List[Tuple[str, int, str]], target_nodes: int = 500, latency_threshold: float = 500.0) -> str:
@@ -609,7 +646,7 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]], target_nodes: int = 500,
     filtered_ip_ports = []
     country_counts = defaultdict(int)
     filtered_counts = defaultdict(int)
-    initial_limit = 8000  # 增加采样上限
+    initial_limit = 4000  # 优化采样上限
     logger.info(f"开始筛选 {len(ip_ports)} 个节点")
 
     # 采样
@@ -635,7 +672,7 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]], target_nodes: int = 500,
 
     # 筛选 DESIRED_COUNTRIES
     desired_results = []
-    for ip, port, country, latency in latency_results:  # 使用全结果，避免丢失无效节点
+    for ip, port, country, latency in latency_results:
         country_from_geoip = country or get_country_from_ip(ip, country_cache)
         if country_from_geoip in DESIRED_COUNTRIES:
             desired_results.append((ip, port, country_from_geoip, latency))
@@ -650,7 +687,6 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]], target_nodes: int = 500,
 
     if not desired_results:
         logger.warning(f"无符合 {DESIRED_COUNTRIES} 的节点，尝试写入所有有效节点")
-        # 回退：写入所有有效节点
         desired_results = [(ip, port, country, latency) for ip, port, country, latency in valid_results]
         if not desired_results:
             logger.error(f"仍无有效节点，无法生成 {IP_LIST_FILE}")
@@ -659,20 +695,20 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]], target_nodes: int = 500,
     # 按延迟排序
     desired_results.sort(key=lambda x: x[3])
     filtered_results = []
-    if latency_threshold > 0:
+    if valid_results and latency_threshold > 0:
         filtered_results = [(ip, port, country, latency) for ip, port, country, latency in desired_results if latency <= latency_threshold and latency != float('inf')]
         logger.info(f"延迟 <= {latency_threshold} ms 的节点: {len(filtered_results)}")
-        if len(filtered_results) < 50:  # 放宽最小节点阈值
+        if len(filtered_results) < 50:
             logger.warning(f"延迟阈值节点不足 ({len(filtered_results)} < 50)，退回 Top {target_nodes}")
             filtered_results = [r for r in desired_results if r[3] != float('inf')][:target_nodes]
     else:
-        filtered_results = [r for r in desired_results if r[3] != float('inf')][:target_nodes]
-        logger.info(f"筛选 Top {target_nodes} 节点")
+        logger.warning(f"无有效延迟节点，选择 {target_nodes} 个目标国家节点（忽略延迟）")
+        filtered_results = desired_results[:target_nodes]
 
     filtered_ip_ports = [(ip, port) for ip, port, _, _ in filtered_results]
 
     if not filtered_ip_ports:
-        logger.warning(f"无符合延迟要求的节点，生成空 {IP_LIST_FILE}")
+        logger.warning(f"无符合要求的节点，生成空 {IP_LIST_FILE}")
         with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
             pass
         return IP_LIST_FILE
@@ -706,15 +742,28 @@ def run_speed_test() -> str:
         logger.error(f"测速脚本 {SPEEDTEST_SCRIPT} 不可执行")
         return None
 
+    with open(IP_LIST_FILE, "r", encoding="utf-8") as f:
+        ip_lines = f.readlines()
+    if not ip_lines:
+        logger.error(f"IP 列表文件 {IP_LIST_FILE} 为空，跳过测速")
+        return None
+    logger.info(f"开始测速，ip.txt 包含 {len(ip_lines)} 个节点")
+
     start_time = time.time()
     batch_size = 20
     max_time_seconds = 480
     temp_dir = tempfile.mkdtemp()
     output_files = []
 
-    with open(IP_LIST_FILE, "r", encoding="utf-8") as f:
-        ip_lines = f.readlines()
-    logger.info(f"ip.txt 包含 {len(ip_lines)} 个节点")
+    country_cache = load_country_cache()
+    logger.info("测速节点国家分布：")
+    country_counts = defaultdict(int)
+    for line in ip_lines:
+        ip = line.strip().split()[0]
+        country = get_country_from_ip(ip, country_cache)
+        country_counts[country or '未知'] += 1
+    logger.info(f"测速输入国家分布: {dict(country_counts)}")
+    save_country_cache(country_cache)
 
     for i in range(0, len(ip_lines), batch_size):
         if time.time() - start_time > max_time_seconds:
@@ -880,6 +929,7 @@ def generate_ips_file(csv_file: str):
         for ip, port, label in labeled_nodes:
             f.write(f"{ip}:{port}#{label}\n")
     logger.info(f"生成 {IPS_FILE}，包含 {len(labeled_nodes)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    logger.info(f"ips.txt 国家分布: {dict(country_count)}")
     save_country_cache(country_cache)
 
 def main():
@@ -890,6 +940,7 @@ def main():
     parser.add_argument("--url", help="URL to fetch IP list", default=INPUT_URL)
     parser.add_argument("--target-nodes", type=int, default=500, help="Target number of nodes for ip.txt")
     parser.add_argument("--latency-threshold", type=float, default=500.0, help="Latency threshold in ms (0 to disable)")
+    parser.add_argument("--extract-only", action="store_true", help="Only extract desired countries and exit")
     args = parser.parse_args()
     try:
         ip_ports = []
@@ -909,10 +960,19 @@ def main():
             logger.debug(f"检查 URL: {args.url}")
             sys.exit(1)
         logger.info(f"获取 IP 列表完成，解析到 {len(ip_ports)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
+
+        # 提取指定国家节点
+        if args.extract_only:
+            if not extract_desired_nodes(ip_ports):
+                logger.error("提取指定国家节点失败，退出")
+                sys.exit(1)
+            logger.info("仅提取指定国家节点，脚本退出")
+            return
+
         ip_list_file = write_ip_list(ip_ports, target_nodes=args.target_nodes, latency_threshold=args.latency_threshold)
         if not ip_list_file:
-            logger.warning("生成 ip.txt 失败，继续生成空结果")
-            # 继续执行，避免退出
+            logger.warning("生成 ip.txt 失败，跳过测速")
+            return
         csv_file = run_speed_test()
         if not csv_file:
             logger.warning("测速失败，跳过后续步骤")
