@@ -1,41 +1,85 @@
 name: IP Speed Test
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
 jobs:
   speedtest:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.13'
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-    - name: Cache GeoIP
-      uses: actions/cache@v4
-      with:
-        path: GeoLite2-Country.mmdb
-        key: geoip-2025.04.10
-    - run: pip install geoip2 requests charset-normalizer
-    - run: chmod +x iptest.sh iptest
-    - name: Check input size
-      run: curl -s $INPUT_URL | wc -l
-      env:
-        INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
-    - name: Test network
-      run: curl -o /dev/null -s -w "%{time_total}s\n" speed.cloudflare.com/__down?bytes=1000000
-    - run: python ip-filter-speedtest-api.py
-    - uses: actions/upload-artifact@v4
-      with:
-        name: speedtest-results
-        path: |
-          ip.txt
-          ip.csv
-          ips.txt
-          speedtest.log
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache GeoIP database
+        uses: actions/cache@v4
+        with:
+          path: GeoLite2-Country.mmdb
+          key: geoip-2025.04.10
+          restore-keys: |
+            geoip-
+
+      - name: Install dependencies
+        run: pip install geoip2 requests charset-normalizer
+
+      - name: Set execute permissions
+        run: chmod +x iptest.sh iptest
+        continue-on-error: true
+
+      - name: Check input size
+        run: |
+          echo "Downloading input CSV..."
+          curl -s $INPUT_URL | wc -l > input_size.txt
+          echo "Input CSV lines: $(cat input_size.txt)"
+        env:
+          INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
+
+      - name: Test network latency
+        run: |
+          echo "Testing network latency to speed.cloudflare.com..."
+          curl -o /dev/null -s -w "HTTP latency: %{time_total}s\n" speed.cloudflare.com/__down?bytes=1000000 > network_test.txt
+          echo "Testing ping to 8.8.8.8..."
+          ping -c 3 -W 1 8.8.8.8 >> network_test.txt 2>&1 || echo "Ping failed, may use HTTP latency" >> network_test.txt
+          cat network_test.txt
+
+      - name: Run IP filter and speed test
+        run: python ip-filter-speedtest-api.py --url=$INPUT_URL --target-nodes=500 --latency-threshold=500
+        env:
+          INPUT_URL: https://raw.githubusercontent.com/gxiaobai2024/api/refs/heads/main/proxyip%20.csv
+        timeout-minutes: 9
+
+      - name: Summarize results
+        run: |
+          echo "ip.txt nodes: $(wc -l < ip.txt 2>/dev/null || echo 0)"
+          echo "ip.csv nodes: $(tail -n +2 ip.csv | wc -l 2>/dev/null || echo 0)"
+          echo "ips.txt nodes: $(wc -l < ips.txt 2>/dev/null || echo 0)"
+          echo "Log summary:"
+          grep -E "保留国家|过滤国家|ip.txt 国家分布|延迟测试完成|测速完成" speedtest.log || echo "No relevant log entries"
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: speedtest-results
+          path: |
+            ip.txt
+            ip.csv
+            ips.txt
+            speedtest.log
+            input_size.txt
+            network_test.txt
+          if-no-files-found: warn
