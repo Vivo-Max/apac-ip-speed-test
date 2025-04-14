@@ -27,6 +27,15 @@ jobs:
         with:
           python-version: '3.x'
 
+      # 缓存 Pip 依赖
+      - name: 缓存 Pip 依赖
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       # 安装依赖
       - name: 安装依赖
         timeout-minutes: 5
@@ -34,7 +43,12 @@ jobs:
           echo "::group::安装依赖"
           sudo apt-get update && sudo apt-get install -y expect
           python -m pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/
-          unbuffer pip install --timeout 60 --retries 5 -i https://mirrors.aliyun.com/pypi/simple/ requests charset_normalizer geoip2
+          unbuffer pip install --timeout 60 --retries 5 --progress-bar off -i https://mirrors.aliyun.com/pypi/simple/ requests charset_normalizer geoip2 || {
+            echo "Pip 安装失败，输出调试信息"
+            pip list
+            pip cache dir
+            exit 1
+          }
           echo "依赖安装完成"
           echo "::endgroup::"
 
