@@ -8,6 +8,7 @@ on:
 jobs:
   process-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30 # 整体工作流超时 30 分钟
     env:
       MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -40,9 +41,8 @@ jobs:
             exit 1
           fi
 
-      # 确保 iptest.sh 和 iptest 可执行
+      # 确保 iptest.sh 或 iptest 可执行
       - name: 配置测速脚本
-        continue-on-error: true
         run: |
           found=false
           for script in iptest.sh iptest; do
@@ -53,7 +53,8 @@ jobs:
             fi
           done
           if [ "$found" = false ]; then
-            echo "警告：未找到 iptest.sh 或 iptest，依赖脚本内部处理"
+            echo "错误：未找到 iptest.sh 或 iptest"
+            exit 1
           fi
 
       # 检查 Git 状态
@@ -65,8 +66,7 @@ jobs:
 
       # 第一步：生成 ip.txt
       - name: 生成 ip.txt
-        continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 5 # 单个步骤超时 5 分钟
         run: |
           python3 ip-filter-speedtest-api.py
           if [ -f ip.txt ]; then
@@ -76,10 +76,9 @@ jobs:
             exit 1
           fi
 
-      # 第二步：测速并生成 ip.csv 和 ips.txt，同时推送所有文件
-      - name: 测速并生成 ip.csv 和 ips.txt
-        continue-on-error: true
-        timeout-minutes: 25
+      # 第二步：测速并生成 ip.csv 和 ips.txt
+      - name: 测速并推送
+        timeout-minutes: 25 # 测速和推送总计 25 分钟
         run: |
           python3 ip-filter-speedtest-api.py --generate-ips
           if [ -f ip.txt ]; then
@@ -107,4 +106,8 @@ jobs:
           git status
           git diff
           ls -la
-          cat speedtest.log
+          cat speedtest.log || echo "speedtest.log 不存在"
+          if [ -f /tmp/temp_proxy.csv ]; then
+            echo "数据源样本："
+            head -n 5 /tmp/temp_proxy.csv
+          fi
