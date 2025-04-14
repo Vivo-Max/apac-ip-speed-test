@@ -41,6 +41,14 @@ jobs:
             exit 1
           fi
 
+      # 清理工作目录
+      - name: 清理工作目录
+        run: |
+          git clean -fd
+          git reset --hard
+          git status
+          echo "工作目录已清理"
+
       # 确保 iptest.sh 或 iptest 可执行
       - name: 配置测速脚本
         run: |
