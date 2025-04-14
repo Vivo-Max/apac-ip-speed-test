@@ -93,7 +93,7 @@ COUNTRY_LABELS = {
     'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
     'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
     'IQ': ('🇮🇶', '伊拉克'), 'YE': ('🇾🇪', '也门'),
-    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('�LV', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
+    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
 }
 COUNTRY_ALIASES = {
     'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'KOREA, REPUBLIC OF': 'KR',
@@ -252,6 +252,15 @@ def find_speedtest_script() -> str:
                     logger.info(f"已为 {candidate} 添加执行权限")
                 except Exception as e:
                     logger.error(f"无法为 {candidate} 添加执行权限: {e}")
+                    continue
+            if candidate.endswith(".sh"):
+                try:
+                    with open(candidate, 'r', encoding='utf-8') as f:
+                        first_line = f.readline().strip()
+                        if not first_line.startswith('#!'):
+                            logger.warning(f"{candidate} 缺少 shebang，可能无法执行")
+                except Exception as e:
+                    logger.error(f"无法读取 {candidate}: {e}")
                     continue
             if candidate.endswith("iptest"):
                 try:
@@ -630,6 +639,7 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
         with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
             for ip, port in filtered_ip_ports:
                 f.write(f"{ip} {port}\n")
+        logger.info(f"写入 {IP_LIST_FILE}，格式为 IP 空格 端口")
         logger.info(f"{IP_LIST_FILE} 已生成，包含 {len(filtered_ip_ports)} 个节点")
         save_country_cache(country_cache)
         return IP_LIST_FILE
