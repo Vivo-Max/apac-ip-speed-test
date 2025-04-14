@@ -12,6 +12,8 @@ jobs:
     env:
       MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PYTHONUNBUFFERED: 1
+      PYTHONIOENCODING: utf-8
     steps:
       # 检出仓库代码
       - name: 检出代码
@@ -76,6 +78,7 @@ jobs:
       - name: 生成 ip.txt
         timeout-minutes: 5
         run: |
+          echo "::group::生成 ip.txt"
           python3 ip-filter-speedtest-api.py
           if [ -f ip.txt ] && [ -s ip.txt ]; then
             echo "ip.txt 已生成，节点数：$(wc -l < ip.txt)"
@@ -83,19 +86,22 @@ jobs:
             echo "ip.txt 生成失败或为空"
             exit 1
           fi
+          echo "::endgroup::"
 
       # 第二步：测速并推送
       - name: 测速并推送
         timeout-minutes: 25
         run: |
+          echo "::group::测速日志"
           python3 ip-filter-speedtest-api.py --generate-ips
+          echo "::endgroup::"
+          echo "::group::检查生成文件"
           if [ -f ip.txt ] && [ -s ip.txt ]; then
             echo "ip.txt 存在，节点数：$(wc -l < ip.txt)"
           else
             echo "警告：ip.txt 不存在或为空"
           fi
           if [ -f ip.csv ] && [ -s ip.csv ]; then
-            # 过滤空行后计算节点数
             node_count=$(grep -v '^$' ip.csv | wc -l)
             node_count=$(( node_count - 1 )) # 减去表头
             echo "ip.csv 已生成，节点数：${node_count}"
@@ -109,19 +115,35 @@ jobs:
             echo "ips.txt 生成失败或为空"
             exit 1
           fi
+          echo "::endgroup::"
+
+      # 检查测速日志
+      - name: 检查测速日志
+        run: |
+          echo "::group::检查测速日志"
+          if [ -f speedtest.log ]; then
+            echo "speedtest.log 内容（最后 20 行）："
+            tail -n 20 speedtest.log
+          else
+            echo "speedtest.log 不存在"
+          fi
+          echo "::endgroup::"
 
       # 确认最新提交
       - name: 确认最新提交
         run: |
+          echo "::group::确认最新提交"
           echo "当前分支："
           git rev-parse --abbrev-ref HEAD
           echo "最近提交："
           git log -1 --pretty=%H --date=iso || echo "无提交历史"
           git status
+          echo "::endgroup::"
 
       # 验证推送文件
       - name: 验证推送内容
         run: |
+          echo "::group::验证推送内容"
           # 检查文件是否存在且非空
           for file in ip.txt ip.csv ips.txt; do
             if [ ! -f "$file" ] || [ ! -s "$file" ]; then
@@ -131,7 +153,6 @@ jobs:
           done
           echo "所有目标文件存在且非空"
           # 获取最新提交的文件列表，排除元数据
-          # 如果没有提交历史，创建一个初始提交
           git diff-tree --no-commit-id --name-only -r HEAD > commit_files.txt 2>/dev/null || {
             echo "未找到提交历史，创建空提交以继续"
             git commit --allow-empty -m "Initial empty commit for validation"
@@ -150,17 +171,21 @@ jobs:
           else
             echo "验证通过：仅提交 ip.txt, ip.csv, ips.txt（或空提交）"
           fi
+          echo "::endgroup::"
 
       # 清理临时文件
       - name: 清理临时文件
         run: |
+          echo "::group::清理临时文件"
           rm -f commit_files.txt expected_files.txt unexpected_files.txt
           echo "临时文件已清理"
+          echo "::endgroup::"
 
       # 调试失败
       - name: 调试 Git 状态
         if: failure()
         run: |
+          echo "::group::调试 Git 状态"
           git status
           git diff
           ls -la
@@ -169,3 +194,4 @@ jobs:
             echo "数据源样本："
             head -n 5 /tmp/temp_proxy.csv
           fi
+          echo "::endgroup::"
