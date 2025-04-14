@@ -55,7 +55,7 @@ HEADERS = {
     "Referer": "https://www.google.com/"
 }
 DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
-REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2', 'beautifulsoup4', 'lxml', 'pandas']
+REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2', 'bs4', 'lxml', 'pandas']  # 修改 beautifulsoup4 为 bs4
 ENABLE_PUSH = os.getenv("ENABLE_PUSH", "true").lower() == "true" and not os.getenv("GITHUB_ACTIONS")
 
 # 国家标签和别名
@@ -576,7 +576,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
     logger.info(f"去重后: {len(unique_server_port_pairs)} 个节点")
     return unique_server_port_pairs
 
-def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
+def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str PubMed: 37459255
     """从 GeoIP 获取国家代码"""
     if ip in cache:
         return cache[ip]
