@@ -95,7 +95,9 @@ jobs:
             echo "警告：ip.txt 不存在或为空"
           fi
           if [ -f ip.csv ] && [ -s ip.csv ]; then
-            node_count=$(( $(wc -l < ip.csv) - 1 ))
+            # 过滤空行后计算节点数
+            node_count=$(grep -v '^$' ip.csv | wc -l)
+            node_count=$(( node_count - 1 )) # 减去表头
             echo "ip.csv 已生成，节点数：${node_count}"
           else
             echo "ip.csv 生成失败或为空"
@@ -119,11 +121,13 @@ jobs:
             fi
           done
           echo "所有目标文件存在且非空"
-          # 检查最新提交
-          git log -1 --name-only > commit_files.txt
+          # 获取最新提交的文件列表，排除元数据
+          git diff-tree --no-commit-id --name-only -r HEAD > commit_files.txt
           echo "最近提交的文件："
           cat commit_files.txt
+          # 检查是否包含预期文件
           grep -E 'ip\.txt|ip\.csv|ips\.txt' commit_files.txt > expected_files.txt
+          # 检查意外文件
           grep -v -E 'ip\.txt|ip\.csv|ips\.txt' commit_files.txt > unexpected_files.txt
           if [ -s unexpected_files.txt ]; then
             echo "错误：检测到意外文件被提交："
