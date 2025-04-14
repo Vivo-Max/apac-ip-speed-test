@@ -56,18 +56,9 @@ HEADERS = {
 }
 DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
 REQUIRED_PACKAGES = ['requests', 'charset-normalizer', 'geoip2', 'beautifulsoup4', 'lxml', 'pandas']
-# 全局推送开关，控制是否调用 commit_and_push_files() 进行 Git 推送
-# 默认值：
-# - 本地运行：ENABLE_PUSH = True（启用推送），通过设置环境变量 GITHUB_TOKEN 推送文件
-# - 云端运行（GitHub Actions）：检测到 GITHUB_ACTIONS 环境变量时，ENABLE_PUSH = False（禁用推送），由工作流接管推送
-# - 支持环境变量 ENABLE_PUSH 覆盖（值 "true" 或 "false"），例如：
-#   - export ENABLE_PUSH=false # 本地禁用推送（调试用）
-# - 逻辑：
-#   - os.getenv("ENABLE_PUSH", "true").lower() == "true"：检查 ENABLE_PUSH 变量，默认 "true"（启用）
-#   - not os.getenv("GITHUB_ACTIONS")：在 GitHub Actions 中 GITHUB_ACTIONS=true，禁用推送
 ENABLE_PUSH = os.getenv("ENABLE_PUSH", "true").lower() == "true" and not os.getenv("GITHUB_ACTIONS")
 
-# 国家标签和别名（保持不变）
+# 国家标签和别名
 COUNTRY_LABELS = {
     'JP': ('🇯🇵', '日本'), 'KR': ('🇰🇷', '韩国'), 'SG': ('🇸🇬', '新加坡'),
     'TW': ('🇹🇼', '台湾'), 'HK': ('🇭🇰', '香港'), 'MY': ('🇲🇾', '马来西亚'),
@@ -84,7 +75,7 @@ COUNTRY_LABELS = {
     'AE': ('🇦🇪', '阿联酋'), 'QA': ('🇶🇦', '卡塔尔'), 'IL': ('🇮🇱', '以色列'),
     'TR': ('🇹🇷', '土耳其'), 'IR': ('🇮🇷', '伊朗'),
     'CN': ('🇨🇳', '中国'), 'BD': ('🇧🇩', '孟加拉国'), 'PK': ('🇵🇰', '巴基斯坦'),
-    'LK': ('🇱🇰', '斯里兰卡'), 'NP': ('🇳🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
+    'LK': ('🇱🇰', '斯里兰卡'), 'NP': ('🇵🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
     'MV': ('🇲🇻', '马尔代夫'), 'BN': ('🇧🇳', '文莱'), 'TL': ('🇹🇱', '东帝汶'),
     'EG': ('🇪🇬', '埃及'), 'ZA': ('🇿🇦', '南非'), 'NG': ('🇳🇬', '尼日利亚'),
     'KE': ('🇰🇪', '肯尼亚'), 'GH': ('🇬🇭', '加纳'), 'MA': ('🇲🇦', '摩洛哥'),
@@ -130,17 +121,6 @@ COUNTRY_ALIASES = {
 # GeoIP 全局变量
 geoip_reader = None
 
-def cleanup_temp_file():
-    """清理临时文件"""
-    if os.path.exists(TEMP_FILE):
-        try:
-            os.remove(TEMP_FILE)
-            logger.info(f"清理临时文件: {TEMP_FILE}")
-        except Exception as e:
-            logger.warning(f"清理临时文件失败: {e}")
-
-atexit.register(cleanup_temp_file)
-
 def download_geoip_database(url: str, dest_path: Path) -> bool:
     """下载 GeoIP 数据库"""
     try:
@@ -172,30 +152,59 @@ def download_geoip_database_maxmind(dest_path: Path) -> bool:
         session.mount('https://', HTTPAdapter(max_retries=retries))
         response = session.get(url, headers=HEADERS, stream=True, timeout=30)
         response.raise_for_status()
-        temp_tar = os.path.join(tempfile.gettempdir(), "geoip.tar.gz")
-        with open(temp_tar, "wb") as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.tar.gz', mode='wb') as temp_tar:
             for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        with tarfile.open(temp_tar, "r:gz") as tar:
+                temp_tar.write(chunk)
+            temp_tar_path = temp_tar.name
+        with tarfile.open(temp_tar_path, "r:gz") as tar:
             for member in tar.getmembers():
                 if member.name.endswith("GeoLite2-Country.mmdb"):
                     tar.extract(member, dest_path.parent)
                     extracted_path = dest_path.parent / member.name
                     extracted_path.rename(dest_path)
                     logger.info(f"MaxMind GeoIP 数据库提取完成: {dest_path}")
-                    os.remove(temp_tar)
+                    os.remove(temp_tar_path)
                     return True
         logger.error("未找到 GeoLite2-Country.mmdb")
+        os.remove(temp_tar_path)
         return False
     except Exception as e:
         logger.error(f"从 MaxMind 下载 GeoIP 数据库失败: {e}")
+        if 'temp_tar_path' in locals():
+            os.remove(temp_tar_path)
         return False
 
 def init_geoip_reader():
     """初始化 GeoIP 数据库"""
     global geoip_reader
-    if not GEOIP_DB_PATH.exists():
-        logger.info("GeoIP 数据库不存在，尝试下载")
+    update_interval = 7 * 24 * 3600  # 7 天
+    
+    def should_update_database(db_path: Path) -> bool:
+        """检查是否需要更新 GeoIP 数据库"""
+        if not db_path.exists():
+            return True
+        last_modified = db_path.stat().st_mtime
+        if time.time() - last_modified > update_interval:
+            logger.info("GeoIP 数据库超过 7 天未更新，检查远程版本")
+            try:
+                session = requests.Session()
+                retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+                session.mount('https://', HTTPAdapter(max_retries=retries))
+                response = session.head(GEOIP_DB_URL, headers=HEADERS, timeout=10)
+                response.raise_for_status()
+                remote_modified = response.headers.get('Last-Modified')
+                if remote_modified:
+                    from email.utils import parsedate_to_datetime
+                    remote_time = parsedate_to_datetime(remote_modified).timestamp()
+                    return remote_time > last_modified
+                return True  # 无修改时间则强制更新
+            except Exception as e:
+                logger.warning(f"检查 GeoIP 更新失败: {e}")
+                return False
+        return False
+
+    if should_update_database(GEOIP_DB_PATH):
+        logger.info("GeoIP 数据库需要更新，尝试下载")
         if not download_geoip_database(GEOIP_DB_URL, GEOIP_DB_PATH):
             if not download_geoip_database_maxmind(GEOIP_DB_PATH):
                 logger.error("无法下载 GeoIP 数据库")
@@ -401,18 +410,19 @@ def find_columns(lines: List[str], delimiter: str) -> Tuple[int, int, int]:
 
 def fetch_and_save_to_temp_file(url: str) -> str:
     """下载 URL 数据到临时文件"""
-    logger.info(f"下载 URL: {url} 到 {TEMP_FILE}")
+    logger.info(f"下载 URL: {url} 到临时文件")
     try:
         session = requests.Session()
         retries = Retry(total=10, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504, 530])
         session.mount('https://', HTTPAdapter(max_retries=retries))
         response = session.get(url, timeout=60, headers=HEADERS, stream=True)
         response.raise_for_status()
-        with open(TEMP_FILE, "wb") as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as temp_file:
             for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        logger.info(f"已下载到 {TEMP_FILE}")
-        return TEMP_FILE
+                temp_file.write(chunk)
+            temp_file_path = temp_file.name
+        logger.info(f"已下载到 {temp_file_path}")
+        return temp_file_path
     except Exception as e:
         logger.error(f"下载 URL 失败: {e}")
         return ''
@@ -655,7 +665,7 @@ def run_speed_test(max_nodes: int = 0) -> str:
     def test_ip(ip_port: Tuple[str, int]) -> Tuple[str, int, str]:
         ip, port = ip_port
         try:
-            timeout = None if not os.getenv("GITHUB_ACTIONS") else 60  # 本地无超时，云端 60 秒
+            timeout = None if not os.getenv("GITHUB_ACTIONS") else 60
             process = subprocess.Popen(
                 [SPEEDTEST_SCRIPT, f"{ip}:{port}"],
                 stdout=subprocess.PIPE,
@@ -670,7 +680,6 @@ def run_speed_test(max_nodes: int = 0) -> str:
                     logger.info(f"[测速 {ip}:{port}] {line.strip()}")
                 if stderr:
                     logger.warning(f"[测速 {ip}:{port} 错误] {stderr.strip()}")
-                # 立即保存结果
                 speed = re.search(r'speed: (\d+\.\d+)', stdout)
                 speed_value = float(speed.group(1)) if speed else 0.0
                 with open(temp_csv, "a", newline="", encoding="utf-8") as f:
@@ -686,18 +695,18 @@ def run_speed_test(max_nodes: int = 0) -> str:
             return ip, port, ''
 
     try:
-        # 初始化临时文件
         with open(temp_csv, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["ip", "port", "speed"])
 
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        max_workers = min(os.cpu_count() * 2, 8) if os.cpu_count() else 4
+        logger.info(f"使用 {max_workers} 个线程进行测速")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(test_ip, ip_port) for ip_port in ip_ports]
             for future in futures:
                 result = future.result()
                 results.append(result)
 
-        # 移动临时文件
         if os.path.exists(temp_csv) and os.path.getsize(temp_csv) > 10:
             os.rename(temp_csv, FINAL_CSV)
             logger.info(f"{FINAL_CSV} 已生成")
@@ -805,7 +814,6 @@ def commit_and_push_files():
             logger.info("无变更需要提交")
             return
 
-        # 拉取并变基
         pull_result = subprocess.run(
             ["git", "pull", "--rebase"],
             capture_output=True, text=True
@@ -819,7 +827,6 @@ def commit_and_push_files():
             )
             if merge_result.returncode != 0:
                 logger.error(f"合并失败: {merge_result.stderr}")
-                # 可选：强制推送
                 force_push = subprocess.run(
                     ["git", "push", "--force"],
                     capture_output=True, text=True
@@ -835,7 +842,6 @@ def commit_and_push_files():
                     capture_output=True, text=True
                 )
 
-        # 推送
         push_result = subprocess.run(
             ["git", "push"],
             capture_output=True, text=True
@@ -862,7 +868,6 @@ def main():
         logger.info("运行 --generate-ips 模式，生成所有文件")
 
     try:
-        # 第一步：生成 ip.txt
         ip_ports = []
         input_urls = [
             INPUT_URL,
@@ -877,6 +882,7 @@ def main():
                 temp_file = fetch_and_save_to_temp_file(url)
                 if temp_file:
                     ip_ports = extract_ip_ports_from_file(temp_file)
+                    os.remove(temp_file)  # 清理临时文件
                     break
         if not ip_ports:
             logger.error("未获取到有效节点")
@@ -886,17 +892,14 @@ def main():
             logger.error("生成 ip.txt 失败")
             sys.exit(1)
 
-        # 第二步：测速并生成 ip.csv
         csv_file = run_speed_test(max_nodes=args.max_nodes)
         if not csv_file:
             logger.error("测速失败")
             sys.exit(1)
 
-        # 第三步：处理 ip.csv 并生成 ips.txt
         filter_speed_and_deduplicate(csv_file)
         generate_ips_file(csv_file)
 
-        # 第四步：推送文件（本地启用，云端禁用）
         if ENABLE_PUSH:
             commit_and_push_files()
 
