@@ -415,7 +415,8 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                 item.get('country', '') or
                 item.get('countryCode', '') or
                 item.get('location', '') or
-                item.get('nation', '')
+                item.get('nation', '') or
+                item.get('region', '')
             )
             if is_valid_ip(ip) and is_valid_port(str(port)):
                 server_port_pairs.append((ip, int(port), country))
@@ -534,21 +535,23 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     filtered_counts = defaultdict(int)
     logger.info(f"开始处理 {len(ip_ports)} 个节点...")
 
-    # 提取所有 IP 和已有国家信息
-    ips = [ip for ip, _, _ in ip_ports]
-    countries = [country for _, _, country in ip_ports]
-    # 批量查询缺失的国家
-    geoip_countries = get_countries_from_ips(ips, country_cache)
-    supplemented = 0
+    # 统计数据源提供的国家信息
+    from_source = sum(1 for _, _, country in ip_ports if country)
+    logger.info(f"数据源提供国家信息: {from_source} 个节点")
 
-    for (ip, port, country), geoip_country in zip(ip_ports, geoip_countries):
-        final_country = country or geoip_country
-        if country:
-            source = "数据源"
-        else:
-            source = "GeoIP 数据库"
+    # 收集需要 GeoIP 查询的 IP
+    supplemented = 0
+    for ip, port, country in ip_ports:
+        final_country = country
+        source = "数据源" if country else "待查询"
+        
+        if not country:
+            # 数据源无国家信息，调用 GeoIP 数据库
+            final_country = get_country_from_ip(ip, country_cache)
             if final_country:
                 supplemented += 1
+                source = "GeoIP 数据库"
+        
         logger.debug(f"IP {ip}:{port} 国家: {final_country} (来源: {source})")
 
         if not DESIRED_COUNTRIES:  # 空列表，保留所有节点
@@ -844,7 +847,7 @@ def main():
             ip_list_file = write_ip_list(ip_ports)
             if not ip_list_file:
                 sys.exit(1)
-            files_to_commit.append(IP_LIST_FILE)  # 添加 ip.txt 到待提交列表
+            files_to_commit.append(IP_LIST_FILE)  # 添加 ip.txt
         else:
             # 第二步：测速并生成 ip.csv 和 ips.txt
             csv_file = run_speed_test()
