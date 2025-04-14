@@ -77,7 +77,7 @@ COUNTRY_LABELS = {
     'MX': ('🇲🇽', '墨西哥'), 'VE': ('🇻🇪', '委内瑞拉'), 'SE': ('🇸🇪', '瑞典'),
     'NO': ('🇳🇴', '挪威'), 'DK': ('🇩🇰', '丹麦'), 'CH': ('🇨🇭', '瑞士'),
     'AT': ('🇦🇹', '奥地利'), 'BE': ('🇧🇪', '比利时'), 'IE': ('🇮🇪', '爱尔兰'),
-    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇵🇬', '保加利亚'),
+    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇧🇬', '保加利亚'),
     'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
     'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
     'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
@@ -439,7 +439,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
     # 尝试检测表头中的国家列
     ip_col, port_col, country_col = 0, 1, -1
     lines_to_process = lines
-    if lines and lines[0].strip() and not line.startswith('#'):
+    if lines and lines[0].strip() and not lines[0].startswith('#'):
         header = lines[0].strip().split(delimiter)
         logger.debug(f"检测到表头：{header}")
         for idx, col in enumerate(header):
@@ -448,7 +448,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                 ip_col = idx
             elif col_lower in ['port', '端口', 'port_number', '端口号']:
                 port_col = idx
-            elif col_lower in ['country', '国家', 'country_code', 'countrycode', 'nation', 'location', 'region', 'geo', 'area']:
+            elif col_lower in ['country', '国家', 'country_code', 'countrycode', '国际代码', 'nation', 'location', 'region', 'geo', 'area']:
                 country_col = idx
         if country_col != -1:
             logger.info(f"检测到国家列：第 {country_col + 1} 列（字段名：{header[country_col]}）")
