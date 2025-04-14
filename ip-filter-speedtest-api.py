@@ -625,6 +625,9 @@ def run_speed_test() -> str:
 
     logger.info("开始测速")
     try:
+        # 设置环境变量以禁用缓冲
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
         process = subprocess.Popen(
             [SPEEDTEST_SCRIPT],
             stdout=subprocess.PIPE,
@@ -632,7 +635,8 @@ def run_speed_test() -> str:
             text=True,
             shell=True,
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
+            env=env  # 传递环境变量
         )
         stdout_lines, stderr_lines = [], []
         def read_stream(stream, lines):
@@ -642,6 +646,7 @@ def run_speed_test() -> str:
                     break
                 lines.append(line)
                 logger.debug(line.strip())
+                sys.stdout.flush()  # 强制刷新输出
         stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines))
         stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines))
         stdout_thread.start()
