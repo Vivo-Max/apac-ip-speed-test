@@ -24,12 +24,34 @@ jobs:
         with:
           python-version: '3.13'
 
+      # 创建 requirements.txt
+      - name: 创建依赖文件
+        run: |
+          cat << EOF > requirements.txt
+          requests
+          charset-normalizer
+          geoip2
+          beautifulsoup4
+          lxml
+          pandas
+          EOF
+
       # 安装依赖
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install requests charset-normalizer geoip2 beautifulsoup4 lxml pandas
+          pip install -r requirements.txt
           echo "依赖安装完成"
+
+      # 验证依赖
+      - name: 验证依赖
+        run: |
+          python -c "import requests, charset_normalizer, geoip2, bs4, lxml, pandas"
+          if [ $? -ne 0 ]; then
+            echo "依赖验证失败"
+            exit 1
+          fi
+          echo "所有依赖验证通过"
 
       # 检查 Python 脚本语法
       - name: 检查脚本语法
@@ -74,7 +96,7 @@ jobs:
             exit 1
           fi
           if [ -f ips.txt ] && [ -s ips.txt ]; then
-            echo "ips.txt 已生成，节点数：$(wc -l < ips.txt)"
+            echo "ips.txt 已生成，节点数：$(wc -l < ip.txt)"
           else
             echo "ips.txt 生成失败或为空"
             exit 1
