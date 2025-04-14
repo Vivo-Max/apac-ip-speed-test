@@ -816,13 +816,40 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
                 subprocess.run(["git", "remote", "add", "origin", remote_url], check=True)
             logger.info(f"本地环境：使用远程仓库 {remote_url}")
 
-        # 拉取最新代码并变基
-        subprocess.run(["git", "pull", "--rebase", "origin", branch], check=True)
+        # 检查工作目录状态
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        if status_result.stdout:
+            logger.warning(f"工作目录有未暂存更改：\n{status_result.stdout}")
+            # 暂存所有更改
+            subprocess.run(["git", "add", "."], check=True)
+            subprocess.run(["git", "commit", "-m", "暂存未跟踪更改"], check=True, capture_output=True)
 
-        # 添加并提交
+        # 拉取最新代码并变基
+        pull_result = subprocess.run(
+            ["git", "pull", "--rebase", "origin", branch],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        logger.debug(f"Git pull output: {pull_result.stdout}")
+
+        # 添加指定文件
         subprocess.run(["git", "add"] + files_to_commit, check=True)
         commit_msg = "Update ip.txt, ip.csv, and ips.txt with speed test results"
-        subprocess.run(["git", "commit", "-m", commit_msg], check=True)
+        commit_result = subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            capture_output=True,
+            text=True
+        )
+        if commit_result.returncode == 0:
+            logger.info("文件已提交")
+        else:
+            logger.warning("无新更改需要提交，可能文件未变更")
 
         # 推送
         push_result = subprocess.run(
@@ -835,10 +862,10 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
     except subprocess.CalledProcessError as e:
         logger.error(f"Git 操作失败: {e.stderr if e.stderr else e.stdout}")
         logger.error(f"完整错误输出: {e.output}")
-        sys.exit(1)
+        raise
     except Exception as e:
         logger.error(f"推送过程中发生异常: {e}")
-        sys.exit(1)
+        raise
 
 def main():
     start_time = time.time()
