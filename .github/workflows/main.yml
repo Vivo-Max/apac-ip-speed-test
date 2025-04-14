@@ -41,12 +41,21 @@ jobs:
         env:
           PIP_LOG: pip.log  # 可选：将 pip 日志输出到文件，便于调试
 
-      # 5. 下载测速脚本
-      - name: Download iptest script
+      # 5. 确保 iptest.sh 或 iptest 可执行
+      - name: 配置测速脚本
         run: |
-          wget https://github.com/sjlleo/iptest/raw/main/iptest -O iptest
-          chmod +x iptest
-        shell: bash
+          found=false
+          for script in iptest.sh iptest; do
+            if [ -f "$script" ]; then
+              chmod +x "$script"
+              echo "$script 已设置为可执行"
+              found=true
+            fi
+          done
+          if [ "$found" = false ]; then
+            echo "错误：未找到 iptest.sh 或 iptest"
+            exit 1
+          fi
 
       # 6. 运行脚本（第一阶段：生成 ip.txt）
       - name: Run script to generate ip.txt
