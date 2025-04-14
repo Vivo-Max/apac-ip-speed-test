@@ -56,6 +56,13 @@ jobs:
             echo "警告：未找到 iptest.sh 或 iptest，依赖脚本内部处理"
           fi
 
+      # 检查 Git 状态
+      - name: 检查 Git 状态
+        run: |
+          git status
+          echo "未跟踪文件："
+          git ls-files --others --exclude-standard
+
       # 第一步：生成 ip.txt
       - name: 生成 ip.txt
         continue-on-error: true
@@ -92,3 +99,12 @@ jobs:
             echo "ips.txt 生成失败"
             exit 1
           fi
+
+      # 调试推送失败
+      - name: 调试 Git 状态
+        if: failure()
+        run: |
+          git status
+          git diff
+          ls -la
+          cat speedtest.log
