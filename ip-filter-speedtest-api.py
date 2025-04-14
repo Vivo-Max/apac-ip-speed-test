@@ -55,9 +55,19 @@ HEADERS = {
     "Referer": "https://www.google.com/"
 }
 DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
-REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2', 'beautifulsoup4', 'lxml', 'pandas']
+REQUIRED_PACKAGES = ['requests', 'charset-normalizer', 'geoip2', 'beautifulsoup4', 'lxml', 'pandas']
+# 全局推送开关，控制是否调用 commit_and_push_files() 进行 Git 推送
+# 默认值：
+# - 本地运行：ENABLE_PUSH = True（启用推送），通过设置环境变量 GITHUB_TOKEN 推送文件
+# - 云端运行（GitHub Actions）：检测到 GITHUB_ACTIONS 环境变量时，ENABLE_PUSH = False（禁用推送），由工作流接管推送
+# - 支持环境变量 ENABLE_PUSH 覆盖（值 "true" 或 "false"），例如：
+#   - export ENABLE_PUSH=false # 本地禁用推送（调试用）
+# - 逻辑：
+#   - os.getenv("ENABLE_PUSH", "true").lower() == "true"：检查 ENABLE_PUSH 变量，默认 "true"（启用）
+#   - not os.getenv("GITHUB_ACTIONS")：在 GitHub Actions 中 GITHUB_ACTIONS=true，禁用推送
+ENABLE_PUSH = os.getenv("ENABLE_PUSH", "true").lower() == "true" and not os.getenv("GITHUB_ACTIONS")
 
-# 国家标签和别名
+# 国家标签和别名（保持不变）
 COUNTRY_LABELS = {
     'JP': ('🇯🇵', '日本'), 'KR': ('🇰🇷', '韩国'), 'SG': ('🇸🇬', '新加坡'),
     'TW': ('🇹🇼', '台湾'), 'HK': ('🇭🇰', '香港'), 'MY': ('🇲🇾', '马来西亚'),
@@ -83,7 +93,7 @@ COUNTRY_LABELS = {
     'MX': ('🇲🇽', '墨西哥'), 'VE': ('🇻🇪', '委内瑞拉'), 'SE': ('🇸🇪', '瑞典'),
     'NO': ('🇳🇴', '挪威'), 'DK': ('🇩🇰', '丹麦'), 'CH': ('🇨🇭', '瑞士'),
     'AT': ('🇦🇹', '奥地利'), 'BE': ('🇧🇪', '比利时'), 'IE': ('🇮🇪', '爱尔兰'),
-    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇧🇬', '保加利亚'),
+    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇬🇬', '保加利亚'),
     'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
     'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
     'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
@@ -613,8 +623,8 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
         logger.error(f"写入 {IP_LIST_FILE} 失败: {e}")
         return ''
 
-def run_speed_test() -> str:
-    """并行测速并实时显示日志"""
+def run_speed_test(max_nodes: int = 0) -> str:
+    """并行测速并实时保存结果"""
     if not SPEEDTEST_SCRIPT:
         logger.error("测速脚本未找到")
         return None
@@ -628,20 +638,24 @@ def run_speed_test() -> str:
             ip_lines = [line.strip().split() for line in f if line.strip()]
         ip_ports = [(ip, int(port)) for ip, port in ip_lines]
         total_nodes = len(ip_ports)
+        if max_nodes > 0 and total_nodes > max_nodes:
+            ip_ports = ip_ports[:max_nodes]
+            total_nodes = max_nodes
+            logger.info(f"限制测速节点数为 {max_nodes}")
         logger.info(f"{IP_LIST_FILE} 包含 {total_nodes} 个节点")
     except Exception as e:
         logger.error(f"读取 {IP_LIST_FILE} 失败: {e}")
         return None
 
-    max_time_seconds = 1200
-    logger.info(f"开始并行测速，最大时间 {max_time_seconds} 秒")
-
+    logger.info("开始并行测速")
+    temp_csv = FINAL_CSV + ".tmp"
     results = []
     lock = threading.Lock()
 
     def test_ip(ip_port: Tuple[str, int]) -> Tuple[str, int, str]:
         ip, port = ip_port
         try:
+            timeout = None if not os.getenv("GITHUB_ACTIONS") else 60  # 本地无超时，云端 60 秒
             process = subprocess.Popen(
                 [SPEEDTEST_SCRIPT, f"{ip}:{port}"],
                 stdout=subprocess.PIPE,
@@ -650,12 +664,18 @@ def run_speed_test() -> str:
                 encoding='utf-8',
                 errors='replace'
             )
-            stdout, stderr = process.communicate(timeout=30)
+            stdout, stderr = process.communicate(timeout=timeout)
             with lock:
                 for line in stdout.splitlines():
                     logger.info(f"[测速 {ip}:{port}] {line.strip()}")
                 if stderr:
                     logger.warning(f"[测速 {ip}:{port} 错误] {stderr.strip()}")
+                # 立即保存结果
+                speed = re.search(r'speed: (\d+\.\d+)', stdout)
+                speed_value = float(speed.group(1)) if speed else 0.0
+                with open(temp_csv, "a", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([ip, port, speed_value])
             return ip, port, stdout
         except subprocess.TimeoutExpired:
             process.kill()
@@ -666,34 +686,42 @@ def run_speed_test() -> str:
             return ip, port, ''
 
     try:
+        # 初始化临时文件
+        with open(temp_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ip", "port", "speed"])
+
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = [executor.submit(test_ip, ip_port) for ip_port in ip_ports]
             for future in futures:
-                result = future.result(timeout=max_time_seconds // len(ip_ports))
+                result = future.result()
                 results.append(result)
 
-        # 模拟生成 ip.csv（需根据 iptest 实际输出调整）
-        with open(FINAL_CSV, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["ip", "port", "speed"])
-            for ip, port, output in results:
-                speed = re.search(r'speed: (\d+\.\d+)', output)
-                speed_value = float(speed.group(1)) if speed else 0.0
-                writer.writerow([ip, port, speed_value])
-
-        logger.info(f"测速完成，耗时: {time.time() - start_time:.2f} 秒")
-        if not os.path.exists(FINAL_CSV) or os.path.getsize(FINAL_CSV) < 10:
+        # 移动临时文件
+        if os.path.exists(temp_csv) and os.path.getsize(temp_csv) > 10:
+            os.rename(temp_csv, FINAL_CSV)
+            logger.info(f"{FINAL_CSV} 已生成")
+        else:
             logger.error(f"{FINAL_CSV} 未生成或内容无效")
             return None
+
         with open(FINAL_CSV, "r", encoding="utf-8") as f:
             lines = f.readlines()
             logger.info(f"{FINAL_CSV} 包含 {len(lines) - 1} 个节点")
+        logger.info(f"测速完成，耗时: {time.time() - start_time:.2f} 秒")
         return FINAL_CSV
     except Exception as e:
         logger.error(f"并行测速异常: {e}")
+        if os.path.exists(temp_csv):
+            os.rename(temp_csv, FINAL_CSV)
+            logger.info(f"保存部分测速结果到 {FINAL_CSV}")
+            return FINAL_CSV
         return None
+    finally:
+        if os.path.exists(temp_csv):
+            os.remove(temp_csv)
 
-def filter_speed_and mer_speed_and_deduplicate(csv_file: str):
+def filter_speed_and_deduplicate(csv_file: str):
     """去重并按速度排序"""
     try:
         df = pd.read_csv(csv_file)
@@ -826,42 +854,51 @@ def main():
     check_dependencies()
 
     parser = argparse.ArgumentParser(description="IP Filter and Speed Test")
-    parser.add_argument("--generate-ips", action="store_true", help="生成 ip.csv 和 ips.txt 并推送")
+    parser.add_argument("--generate-ips", action="store_true", help="仅记录日志，生成所有文件")
+    parser.add_argument("--max-nodes", type=int, default=0, help="最大测速节点数，0 表示无限制")
     args = parser.parse_args()
 
+    if args.generate_ips:
+        logger.info("运行 --generate-ips 模式，生成所有文件")
+
     try:
-        if not args.generate_ips:
-            ip_ports = []
-            input_urls = [
-                INPUT_URL,
-                "https://backup-url.com/proxy.csv"
-            ]
-            if os.path.exists(INPUT_FILE):
-                logger.info(f"从 {INPUT_FILE} 获取节点")
-                ip_ports = extract_ip_ports_from_file(INPUT_FILE)
-            else:
-                for url in input_urls:
-                    logger.info(f"未找到 {INPUT_FILE}，尝试从 URL {url} 下载")
-                    temp_file = fetch_and_save_to_temp_file(url)
-                    if temp_file:
-                        ip_ports = extract_ip_ports_from_file(temp_file)
-                        break
-            if not ip_ports:
-                logger.error("未获取到有效节点")
-                sys.exit(1)
-            ip_list_file = write_ip_list(ip_ports)
-            if not ip_list_file:
-                logger.error("生成 ip.txt 失败")
-                sys.exit(1)
-            commit_and_push_files()  # 推送 ip.txt
+        # 第一步：生成 ip.txt
+        ip_ports = []
+        input_urls = [
+            INPUT_URL,
+            "https://backup-url.com/proxy.csv"
+        ]
+        if os.path.exists(INPUT_FILE):
+            logger.info(f"从 {INPUT_FILE} 获取节点")
+            ip_ports = extract_ip_ports_from_file(INPUT_FILE)
         else:
-            csv_file = run_speed_test()
-            if not csv_file:
-                logger.error("测速失败")
-                sys.exit(1)
-            filter_speed_and_deduplicate(csv_file)
-            generate_ips_file(csv_file)
-            commit_and_push_files()  # 推送 ip.csv 和 ips.txt
+            for url in input_urls:
+                logger.info(f"未找到 {INPUT_FILE}，尝试从 URL {url} 下载")
+                temp_file = fetch_and_save_to_temp_file(url)
+                if temp_file:
+                    ip_ports = extract_ip_ports_from_file(temp_file)
+                    break
+        if not ip_ports:
+            logger.error("未获取到有效节点")
+            sys.exit(1)
+        ip_list_file = write_ip_list(ip_ports)
+        if not ip_list_file:
+            logger.error("生成 ip.txt 失败")
+            sys.exit(1)
+
+        # 第二步：测速并生成 ip.csv
+        csv_file = run_speed_test(max_nodes=args.max_nodes)
+        if not csv_file:
+            logger.error("测速失败")
+            sys.exit(1)
+
+        # 第三步：处理 ip.csv 并生成 ips.txt
+        filter_speed_and_deduplicate(csv_file)
+        generate_ips_file(csv_file)
+
+        # 第四步：推送文件（本地启用，云端禁用）
+        if ENABLE_PUSH:
+            commit_and_push_files()
 
         logger.info(f"脚本完成 (总耗时: {time.time() - start_time:.2f} 秒)")
     except Exception as e:
