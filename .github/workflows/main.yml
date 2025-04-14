@@ -16,6 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # 获取完整历史以支持 Git 操作
+          token: ${{ secrets.GITHUB_TOKEN }}  # 确保有权限推送
 
       # 2. 设置 Python 环境
       - name: Set up Python 3.11
@@ -37,15 +38,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 安装 requirements.txt 中的依赖
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt --verbose
           else
             echo "未找到 requirements.txt，跳过"
           fi
-          # 强制安装 geoip2，确保依赖存在
           pip install geoip2 --verbose
-          # 验证依赖是否安装成功
           python -c "import geoip2; print('geoip2 模块已成功安装')"
         env:
           PIP_LOG: pip.log
@@ -53,14 +51,12 @@ jobs:
       # 5. 准备 iptest.sh 和 iptest
       - name: Prepare iptest.sh and iptest
         run: |
-          # 检查本地 iptest.sh 和 iptest 是否存在
           if [ -f "./iptest.sh" ] && [ -f "./iptest" ]; then
             echo "找到本地 iptest.sh 和 iptest，直接使用"
           else
             echo "错误：未找到 iptest.sh 或 iptest，请确保仓库中包含这两个文件"
             exit 1
           fi
-          # 确保文件有执行权限
           chmod +x ./iptest.sh
           chmod +x ./iptest
           echo "iptest.sh 和 iptest 已授权并准备好"
@@ -72,6 +68,7 @@ jobs:
           python ip-filter-speedtest-api.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
         timeout-minutes: 15
 
       # 7. 运行脚本（第二阶段：测速并生成 ip.csv 和 ips.txt）
@@ -80,9 +77,34 @@ jobs:
           python ip-filter-speedtest-api.py --generate-ips
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
         timeout-minutes: 30
 
-      # 8. 上传生成的工件
+      # 8. 配置 Git 用户
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+        if: success()
+
+      # 9. 提交生成的文件
+      - name: Commit generated files
+        run: |
+          git add ip.txt ip.csv ips.txt speedtest.log pip.log country_cache.json || echo "没有文件需要添加"
+          git commit -m "Update IP filter and speed test results" || echo "没有更改需要提交"
+        if: success()
+
+      # 10. 推送到 main 分支
+      - name: Push changes
+        run: |
+          git fetch origin
+          git rebase origin/main
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: success()
+
+      # 11. 上传生成的工件
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -92,5 +114,6 @@ jobs:
             ip.csv
             ips.txt
             speedtest.log
-            pip.log  # 上传 pip 日志，便于调试
+            pip.log
+            country_cache.json
         if: always()
