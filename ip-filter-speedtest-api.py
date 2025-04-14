@@ -20,6 +20,9 @@ from pathlib import Path
 import tempfile
 import atexit
 
+# 禁用 stdout 缓冲，确保日志实时输出
+sys.stdout.reconfigure(line_buffering=True)
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -27,7 +30,8 @@ logging.basicConfig(
     handlers=[
         logging.FileHandler("speedtest.log", encoding="utf-8"),
         logging.StreamHandler(sys.stdout)
-    ]
+    ],
+    force=True  # 强制重新配置日志，避免缓冲
 )
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -216,7 +220,7 @@ def download_geoip_database_maxmind(dest_path: Path) -> bool:
 def init_geoip_reader():
     global geoip_reader
     if not GEOIP_DB_PATH.exists():
-        logger.warning(f"GeoIP 数据库 {GEOIP_DB_PATH} 不存在，尝试下载")
+        logger.info(f"GeoIP 数据库 {GEOIP_DB_PATH} 不存在，尝试下载")
         if not download_geoip_database(GEOIP_DB_URL, GEOIP_DB_PATH):
             logger.warning("主下载源失败，尝试 MaxMind")
             if not download_geoip_database_maxmind(GEOIP_DB_PATH):
@@ -838,17 +842,15 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
             logger.info("无文件可提交")
             return
 
+        # 强制提交，即使无变更
         commit_msg = "Update ip.txt, ip.csv, and ips.txt with speed test results"
         commit_result = subprocess.run(
-            ["git", "commit", "-m", commit_msg],
+            ["git", "commit", "--allow-empty", "-m", commit_msg],
             capture_output=True,
-            text=True
+            text=True,
+            check=True
         )
-        if commit_result.returncode == 0:
-            logger.info("文件已提交")
-        else:
-            logger.warning("无新更改需要提交，可能文件未变更")
-            return
+        logger.info("文件已提交（即使无变更）")
 
         # 推送
         push_result = subprocess.run(
