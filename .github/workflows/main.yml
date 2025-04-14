@@ -69,12 +69,17 @@ jobs:
             exit 1
           fi
 
-      # 第二步：测速并生成 ip.csv 和 ips.txt，同时推送
+      # 第二步：测速并生成 ip.csv 和 ips.txt，同时推送所有文件
       - name: 测速并生成 ip.csv 和 ips.txt
         continue-on-error: true
         timeout-minutes: 25
         run: |
           python3 ip-filter-speedtest-api.py --generate-ips
+          if [ -f ip.txt ]; then
+            echo "ip.txt 存在，节点数：$(wc -l < ip.txt)"
+          else
+            echo "警告：ip.txt 不存在"
+          fi
           if [ -f ip.csv ]; then
             echo "ip.csv 已生成，节点数：$(($(wc -l < ip.csv) - 1))"
           else
