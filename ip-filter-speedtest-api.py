@@ -404,19 +404,25 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
         logger.error("内容为空")
         return []
 
+    # 保存数据源样本便于调试
+    logger.debug(f"数据源样本（前5行）：{lines[:5]}")
+
     # 尝试 JSON 格式
     try:
         data = json.loads(content)
         for item in data:
             ip = item.get('ip', '')
             port = item.get('port', '')
-            # 优先从数据源提取国家，支持多种字段名
+            # 扩展支持的国家字段名
             country = standardize_country(
                 item.get('country', '') or
                 item.get('countryCode', '') or
+                item.get('country_code', '') or
                 item.get('location', '') or
                 item.get('nation', '') or
-                item.get('region', '')
+                item.get('region', '') or
+                item.get('geo', '') or
+                item.get('area', '')
             )
             if is_valid_ip(ip) and is_valid_port(str(port)):
                 server_port_pairs.append((ip, int(port), country))
@@ -425,25 +431,31 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
     except json.JSONDecodeError:
         pass
 
-    # 检测分隔符和列
+    # 检测分隔符
     delimiter = detect_delimiter(lines)
+    if not delimiter:
+        logger.warning("无法检测分隔符，假设为逗号")
+        delimiter = ','
+
+    # 尝试检测表头中的国家列
     ip_col, port_col, country_col = 0, 1, -1
     lines_to_process = lines
     if lines and lines[0].strip() and not lines[0].startswith('#'):
-        header = lines[0].strip().split(delimiter or ',')
+        header = lines[0].strip().split(delimiter)
+        logger.debug(f"检测到表头：{header}")
         for idx, col in enumerate(header):
             col_lower = col.strip().lower()
-            if col_lower in ['ip', 'address', 'ip地址']:
+            if col_lower in ['ip', 'address', 'ip_address', 'ip地址']:
                 ip_col = idx
-            elif col_lower in ['port', '端口', '端口口']:
+            elif col_lower in ['port', '端口', 'port_number', '端口号']:
                 port_col = idx
-            elif col_lower in ['country', '国家', 'code', 'nation', 'location', 'countrycode', 'region']:
+            elif col_lower in ['country', '国家', 'country_code', 'countrycode', 'nation', 'location', 'region', 'geo', 'area']:
                 country_col = idx
         if country_col != -1:
+            logger.info(f"检测到国家列：第 {country_col + 1} 列（字段名：{header[country_col]}）")
             lines_to_process = lines[1:]
         else:
-            if delimiter:
-                ip_col, port_col, country_col = find_country_column(lines, delimiter)
+            logger.info("表头未包含国家列，将遍历每行每列查找国家信息")
 
     ip_port_pattern = re.compile(
         r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})'
@@ -462,6 +474,16 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                 fields = line.split(delimiter)
                 if country_col < len(fields):
                     country = standardize_country(fields[country_col].strip())
+            if not country and delimiter:
+                # 遍历每列查找国家信息
+                fields = line.split(delimiter)
+                for col, field in enumerate(fields):
+                    field = field.strip()
+                    potential_country = standardize_country(field)
+                    if potential_country:
+                        country = potential_country
+                        logger.debug(f"Line {i}: 国家信息从第 {col + 1} 列提取：{field} -> {country}")
+                        break
             if is_valid_port(port):
                 server_port_pairs.append((server, int(port), country))
             else:
@@ -477,11 +499,14 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
             country = ''
             if country_col != -1 and country_col < len(fields):
                 country = standardize_country(fields[country_col].strip())
-            else:
+            if not country:
+                # 遍历每列查找国家信息
                 for col, field in enumerate(fields):
                     field = field.strip()
-                    if is_country_like(field) or field.upper() in COUNTRY_ALIASES:
-                        country = standardize_country(field)
+                    potential_country = standardize_country(field)
+                    if potential_country:
+                        country = potential_country
+                        logger.debug(f"Line {i}: 国家信息从第 {col + 1} 列提取：{field} -> {country}")
                         break
             if is_valid_ip(server) and is_valid_port(port_str):
                 server_port_pairs.append((server, int(port_str), country))
