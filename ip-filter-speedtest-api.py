@@ -81,7 +81,7 @@ COUNTRY_LABELS = {
     'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
     'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
     'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
-    'KG': ('🇰🇬', '吉尔吉斯斯坦'), 'TJ': ('🇹🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
+    'KG': ('🇰🇬', '吉尔吉斯斯坦'), 'TJ': ('🇯🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
     'GE': ('🇬🇪', '格鲁吉亚'), 'AM': ('🇦🇲', '亚美尼亚'), 'AZ': ('🇦🇿', '阿塞拜疆'),
     'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
     'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
@@ -662,7 +662,8 @@ def run_speed_test() -> str:
             return None
         with open(FINAL_CSV, "r", encoding="utf-8") as f:
             lines = f.readlines()
-            logger.info(f"{FINAL_CSV} 包含 {len(lines) - 1} 个节点")
+            node_count = len(lines) - 1 if lines else 0
+            logger.info(f"{FINAL_CSV} 包含 {node_count} 个节点")
         return FINAL_CSV
     except Exception as e:
         logger.error(f"测速异常: {e}")
@@ -678,7 +679,10 @@ def filter_speed_and_deduplicate(csv_file: str):
     try:
         with open(csv_file, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            header = next(reader)
+            header = next(reader, None)
+            if not header:
+                logger.error(f"{csv_file} 无有效表头")
+                return
             for row in reader:
                 if len(row) < 2:
                     continue
@@ -701,7 +705,8 @@ def filter_speed_and_deduplicate(csv_file: str):
         writer = csv.writer(f)
         writer.writerow(header)
         writer.writerows(final_rows)
-    logger.info(f"{csv_file} 处理完成，{len(final_rows)} 条记录 (耗时: {time.time() - start_time:.2f} 秒)")
+    logger.info(f"{csv_file} 处理完成，{len(final_rows)} 个数据节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    return len(final_rows)
 
 def generate_ips_file(csv_file: str):
     start_time = time.time()
@@ -742,9 +747,10 @@ def generate_ips_file(csv_file: str):
     with open(IPS_FILE, "w", encoding="utf-8-sig") as f:
         for ip, port, label in labeled_nodes:
             f.write(f"{ip}:{port}#{label}\n")
-    logger.info(f"生成 {IPS_FILE}，{len(labeled_nodes)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    logger.info(f"生成 {IPS_FILE}，{len(labeled_nodes)} 个数据节点 (耗时: {time.time() - start_time:.2f} 秒)")
     logger.info(f"国家分布：{dict(country_count)}")
     save_country_cache(country_cache)
+    return len(labeled_nodes)
 
 def detect_environment() -> tuple[str, bool]:
     is_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
@@ -821,11 +827,17 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
         logger.debug(f"Git pull output: {pull_result.stdout}")
 
         # 添加目标文件
+        files_added = []
         for file in files_to_commit:
             if os.path.exists(file):
                 subprocess.run(["git", "add", file], check=True)
+                files_added.append(file)
             else:
                 logger.warning(f"文件 {file} 不存在，跳过添加")
+        if not files_added:
+            logger.info("无文件可提交")
+            return
+
         commit_msg = "Update ip.txt, ip.csv, and ips.txt with speed test results"
         commit_result = subprocess.run(
             ["git", "commit", "-m", commit_msg],
@@ -836,6 +848,7 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
             logger.info("文件已提交")
         else:
             logger.warning("无新更改需要提交，可能文件未变更")
+            return
 
         # 推送
         push_result = subprocess.run(
@@ -844,7 +857,7 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
             text=True,
             check=True
         )
-        logger.info(f"成功推送 {', '.join([f for f in files_to_commit if os.path.exists(f)])} 到分支 {branch}")
+        logger.info(f"成功推送 {', '.join(files_added)} 到分支 {branch}")
     except subprocess.CalledProcessError as e:
         logger.error(f"Git 操作失败: {e.stderr if e.stderr else e.stdout}")
         logger.error(f"完整错误输出: {e.output}")
@@ -888,7 +901,9 @@ def main():
             csv_file = run_speed_test()
             if not csv_file:
                 sys.exit(1)
-            filter_speed_and_deduplicate(csv_file)
+            node_count = filter_speed_and_deduplicate(csv_file)
+            if node_count is None:
+                sys.exit(1)
             generate_ips_file(csv_file)
             if os.path.exists(FINAL_CSV):
                 files_to_commit.append(FINAL_CSV)
