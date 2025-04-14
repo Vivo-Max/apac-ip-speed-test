@@ -60,6 +60,24 @@ jobs:
             exit 1
           fi
 
+      # 修复测速脚本格式
+      - name: 修复测速脚本格式
+        run: |
+          if [ -f iptest.sh ]; then
+            sudo apt-get update && sudo apt-get install -y dos2unix
+            dos2unix iptest.sh || true
+            if ! head -n 1 iptest.sh | grep -q '^#!/'; then
+              echo '#!/bin/bash' | cat - iptest.sh > temp.sh && mv temp.sh iptest.sh
+              chmod +x iptest.sh
+              echo "已为 iptest.sh 添加 shebang"
+            fi
+            file iptest.sh
+            chmod +x iptest.sh
+          else
+            echo "错误：iptest.sh 不存在"
+            exit 1
+          fi
+
       # 确保 iptest.sh 和 iptest 可执行
       - name: 配置测速脚本
         continue-on-error: true
@@ -97,6 +115,22 @@ jobs:
             echo "ips.txt 已生成，节点数：$(wc -l < ip.txt)"
           else
             echo "ips.txt 生成失败或为空"
+            exit 1
+          fi
+
+      # 验证 ip.txt 格式
+      - name: 验证 ip.txt 格式
+        run: |
+          if [ -f ip.txt ]; then
+            while IFS=' ' read -r ip port; do
+              if [[ ! "$ip" =~ ^[0-9.:]+$ ]] || [[ ! "$port" =~ ^[0-9]+$ ]]; then
+                echo "错误：ip.txt 格式不正确，期望 'IP 端口'，实际: $ip $port"
+                exit 1
+              fi
+            done < ip.txt
+            echo "ip.txt 格式正确"
+          else
+            echo "错误：ip.txt 不存在"
             exit 1
           fi
 
