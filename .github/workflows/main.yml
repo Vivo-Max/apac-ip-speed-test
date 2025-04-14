@@ -66,7 +66,7 @@ jobs:
 
       # 第一步：生成 ip.txt
       - name: 生成 ip.txt
-        timeout-minutes: 5 # 单个步骤超时 5 分钟
+        timeout-minutes: 5
         run: |
           python3 ip-filter-speedtest-api.py
           if [ -f ip.txt ]; then
@@ -78,7 +78,7 @@ jobs:
 
       # 第二步：测速并生成 ip.csv 和 ips.txt
       - name: 测速并推送
-        timeout-minutes: 25 # 测速和推送总计 25 分钟
+        timeout-minutes: 25
         run: |
           python3 ip-filter-speedtest-api.py --generate-ips
           if [ -f ip.txt ]; then
@@ -97,6 +97,22 @@ jobs:
           else
             echo "ips.txt 生成失败"
             exit 1
+          fi
+
+      # 验证推送文件
+      - name: 验证推送内容
+        run: |
+          git log -1 --name-only > commit_files.txt
+          echo "最近提交的文件："
+          cat commit_files.txt
+          grep -E 'ip\.txt|ip\.csv|ips\.txt' commit_files.txt > expected_files.txt
+          grep -v -E 'ip\.txt|ip\.csv|ips\.txt' commit_files.txt > unexpected_files.txt
+          if [ -s unexpected_files.txt ]; then
+            echo "错误：检测到意外文件被提交："
+            cat unexpected_files.txt
+            exit 1
+          else
+            echo "验证通过：仅提交 ip.txt, ip.csv, ips.txt"
           fi
 
       # 调试推送失败
