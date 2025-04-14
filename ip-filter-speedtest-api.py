@@ -793,7 +793,7 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
 
         # 添加并提交
         subprocess.run(["git", "add"] + files_to_commit, check=True)
-        commit_msg = "Update ip.csv and ips.txt with speed test results"
+        commit_msg = "Update ip.txt, ip.csv, and ips.txt with speed test results"
         subprocess.run(["git", "commit", "-m", commit_msg], check=True)
 
         # 推送
@@ -825,6 +825,9 @@ def main():
     logger.info(f"运行环境: {'GitHub Actions' if is_github_actions else '本地服务器'}，分支: {branch}")
 
     try:
+        files_to_commit = []
+        
+        # 第一步：生成 ip.txt
         if not args.generate_ips:
             ip_ports = []
             if os.path.exists(INPUT_FILE):
@@ -841,20 +844,27 @@ def main():
             ip_list_file = write_ip_list(ip_ports)
             if not ip_list_file:
                 sys.exit(1)
+            files_to_commit.append(IP_LIST_FILE)  # 添加 ip.txt 到待提交列表
         else:
+            # 第二步：测速并生成 ip.csv 和 ips.txt
             csv_file = run_speed_test()
             if not csv_file:
                 sys.exit(1)
             filter_speed_and_deduplicate(csv_file)
             generate_ips_file(csv_file)
-
-            # 推送逻辑
-            files_to_commit = []
+            # 收集生成的文件
             if os.path.exists(FINAL_CSV):
                 files_to_commit.append(FINAL_CSV)
             if os.path.exists(IPS_FILE):
                 files_to_commit.append(IPS_FILE)
-            push_to_repository(files_to_commit, branch, is_github_actions)
+            if os.path.exists(IP_LIST_FILE):
+                files_to_commit.append(IP_LIST_FILE)  # 确保 ip.txt 也被包含
+
+            # 推送逻辑
+            if files_to_commit:
+                push_to_repository(files_to_commit, branch, is_github_actions)
+            else:
+                logger.warning("无文件可推送")
 
         logger.info(f"脚本完成 (总耗时: {time.time() - start_time:.2f} 秒)")
     finally:
