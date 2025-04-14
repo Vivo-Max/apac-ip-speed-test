@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
-      # 不设置 GITHUB_TOKEN，脚本不推送
     steps:
       # 检出仓库代码
       - name: 检出代码
@@ -31,24 +30,21 @@ jobs:
           requests
           charset-normalizer
           geoip2
-          beautifulsoup4
-          lxml
-          pandas
           EOF
 
       # 安装依赖
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip cache purge || true  # 清除缓存，防止旧版本干扰
-          pip install -r requirements.txt --force-reinstall
+          pip cache purge || true
+          pip install -r requirements.txt
           echo "依赖安装完成"
-          pip list  # 输出已安装包列表
+          pip list
 
       # 验证依赖
       - name: 验证依赖
         run: |
-          python -c "import sys; missing = [pkg for pkg in ['requests', 'charset_normalizer', 'geoip2', 'bs4', 'lxml', 'pandas'] if not __import__(pkg, fromlist=[''])]; sys.exit(1 if missing else 0)" || { echo "缺少依赖: $(python -c "import sys; print([pkg for pkg in ['requests', 'charset_normalizer', 'geoip2', 'bs4', 'lxml', 'pandas'] if not __import__(pkg, fromlist=[''])])")"; exit 1; }
+          python -c "import sys; missing = [pkg for pkg in ['requests', 'charset_normalizer', 'geoip2'] if not __import__(pkg, fromlist=[''])]; sys.exit(1 if missing else 0)" || { echo "缺少依赖: $(python -c "import sys; print([pkg for pkg in ['requests', 'charset_normalizer', 'geoip2'] if not __import__(pkg, fromlist=[''])])")"; exit 1; }
           echo "所有依赖验证通过"
 
       # 检查 Python 脚本语法
@@ -96,9 +92,9 @@ jobs:
 
       # 生成所有文件
       - name: 生成 ip.txt, ip.csv, ips.txt
-        timeout-minutes: 360 # 最大 6 小时
+        timeout-minutes: 30 # 优化为 30 分钟
         run: |
-          python3 ip-filter-speedtest-api.py
+          python3 ip-filter-speedtest-api.py --generate-ips
           if [ -f ip.txt ] && [ -s ip.txt ]; then
             echo "ip.txt 已生成，节点数：$(wc -l < ip.txt)"
           else
@@ -107,12 +103,13 @@ jobs:
           fi
           if [ -f ip.csv ] && [ -s ip.csv ]; then
             echo "ip.csv 已生成，节点数：$(($(wc -l < ip.csv) - 1))"
+            head -n 1 ip.csv | grep -q "IP,Port,DataCenter,Region,City,Delay_ms,Download_MBps" || { echo "ip.csv 表头错误"; exit 1; }
           else
             echo "ip.csv 生成失败或为空"
             exit 1
           fi
           if [ -f ips.txt ] && [ -s ips.txt ]; then
-            echo "ips.txt 已生成，节点数：$(wc -l < ip.txt)"
+            echo "ips.txt 已生成，节点数：$(wc -l < ips.txt)"
           else
             echo "ips.txt 生成失败或为空"
             exit 1
