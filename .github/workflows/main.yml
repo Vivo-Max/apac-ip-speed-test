@@ -90,17 +90,23 @@ jobs:
             echo "警告：未找到 iptest.sh 或 iptest"
           fi
 
-      # 生成所有文件
-      - name: 生成 ip.txt, ip.csv, ips.txt
-        timeout-minutes: 30 # 优化为 30 分钟
+      # 生成 ip.txt
+      - name: 生成 ip.txt
+        timeout-minutes: 5
         run: |
-          python3 ip-filter-speedtest-api.py --generate-ips
+          python3 ip-filter-speedtest-api.py
           if [ -f ip.txt ] && [ -s ip.txt ]; then
             echo "ip.txt 已生成，节点数：$(wc -l < ip.txt)"
           else
             echo "ip.txt 生成失败或为空"
             exit 1
           fi
+
+      # 生成 ip.csv 和 ips.txt
+      - name: 生成 ip.csv 和 ips.txt
+        timeout-minutes: 30
+        run: |
+          python3 ip-filter-speedtest-api.py --generate-ips
           if [ -f ip.csv ] && [ -s ip.csv ]; then
             echo "ip.csv 已生成，节点数：$(($(wc -l < ip.csv) - 1))"
             head -n 1 ip.csv | grep -q "IP,Port,DataCenter,Region,City,Delay_ms,Download_MBps" || { echo "ip.csv 表头错误"; exit 1; }
