@@ -37,7 +37,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt --verbose
+          # 安装 requirements.txt 中的依赖
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt --verbose
+          else
+            echo "未找到 requirements.txt，跳过"
+          fi
+          # 强制安装 geoip2，确保依赖存在
+          pip install geoip2 --verbose
+          # 验证依赖是否安装成功
+          python -c "import geoip2; print('geoip2 模块已成功安装')"
         env:
           PIP_LOG: pip.log
 
@@ -83,4 +92,5 @@ jobs:
             ip.csv
             ips.txt
             speedtest.log
+            pip.log  # 上传 pip 日志，便于调试
         if: always()
