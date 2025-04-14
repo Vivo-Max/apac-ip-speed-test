@@ -819,14 +819,25 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
         logger.info("无文件需要推送")
         return
 
+    # 确认文件存在
+    files_to_commit = [f for f in files_to_commit if os.path.exists(f)]
+    if not files_to_commit:
+        logger.info("所有待提交文件都不存在，跳过推送")
+        return
+
+    logger.info(f"准备推送文件: {', '.join(files_to_commit)} 到分支 {branch}")
+    
     try:
+        # 配置 Git 用户
         subprocess.run(["git", "config", "--global", "user.name", "GitHub Actions Bot"], check=True)
         subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
 
         if is_github_actions:
+            # 设置远程仓库 URL（使用 GITHUB_TOKEN）
             repo_url = f"https://{os.environ['GITHUB_ACTOR']}:{os.environ['GITHUB_TOKEN']}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
             subprocess.run(["git", "remote", "set-url", "origin", repo_url], check=True)
         else:
+            # 本地环境：检查远程仓库是否存在
             try:
                 remote_url = subprocess.run(
                     ["git", "remote", "get-url", "origin"],
@@ -841,31 +852,7 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
                 return
             logger.info(f"本地环境：使用远程仓库 {remote_url}")
 
-        # 检查工作目录状态
-        status_result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        if status_result.stdout:
-            if is_github_actions:
-                logger.warning(f"GitHub Actions 环境中检测到未暂存更改，清理工作目录：\n{status_result.stdout}")
-                subprocess.run(["git", "clean", "-fd"], check=True)
-                subprocess.run(["git", "reset", "--hard"], check=True)
-                status_result = subprocess.run(
-                    ["git", "status", "--porcelain"],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                if status_result.stdout:
-                    logger.error(f"工作目录清理后仍有更改：\n{status_result.stdout}")
-                    raise RuntimeError("无法清理工作目录")
-            else:
-                logger.error(f"本地环境中检测到未暂存更改，请先提交或清理工作目录：\n{status_result.stdout}")
-                raise RuntimeError("本地工作目录不干净")
-
+        # 拉取最新代码并变基
         pull_result = subprocess.run(
             ["git", "pull", "--rebase", "origin", branch],
             capture_output=True,
@@ -874,17 +861,12 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
         )
         logger.debug(f"Git pull output: {pull_result.stdout}")
 
-        files_added = []
+        # 添加目标文件
         for file in files_to_commit:
-            if os.path.exists(file):
-                subprocess.run(["git", "add", file], check=True)
-                files_added.append(file)
-            else:
-                logger.warning(f"文件 {file} 不存在，跳过添加")
-        if not files_added:
-            logger.info("无文件可提交")
-            return
+            subprocess.run(["git", "add", file], check=True)
+            logger.info(f"已添加文件: {file}")
 
+        # 强制提交（允许空提交）
         commit_msg = "Update ip.txt, ip.csv, and ips.txt with speed test results"
         commit_result = subprocess.run(
             ["git", "commit", "--allow-empty", "-m", commit_msg],
@@ -892,15 +874,17 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
             text=True,
             check=True
         )
-        logger.info("文件已提交（即使无变更）")
+        logger.info(f"提交完成: {commit_result.stdout}")
 
+        # 强制推送，覆盖远程仓库
         push_result = subprocess.run(
-            ["git", "push", "origin", f"HEAD:{branch}"],
+            ["git", "push", "--force", "origin", f"HEAD:{branch}"],
             capture_output=True,
             text=True,
             check=True
         )
-        logger.info(f"成功推送 {', '.join(files_added)} 到分支 {branch}")
+        logger.info(f"成功强制推送 {', '.join(files_to_commit)} 到分支 {branch}")
+        logger.debug(f"Git push output: {push_result.stdout}")
     except subprocess.CalledProcessError as e:
         logger.error(f"Git 操作失败: {e.stderr if e.stderr else e.stdout}")
         logger.error(f"完整错误输出: {e.output}")
@@ -908,7 +892,6 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
     except Exception as e:
         logger.error(f"推送过程中发生异常: {e}")
         raise
-
 def main():
     start_time = time.time()
     logger.info("脚本开始")
