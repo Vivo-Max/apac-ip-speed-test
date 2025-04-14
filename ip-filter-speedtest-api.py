@@ -55,7 +55,7 @@ HEADERS = {
     "Referer": "https://www.google.com/"
 }
 DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
-REQUIRED_PACKAGES = ['requests', 'charset-normalizer', 'geoip2', 'beautifulsoup4', 'lxml', 'pandas']
+REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2', 'beautifulsoup4', 'lxml', 'pandas']
 ENABLE_PUSH = os.getenv("ENABLE_PUSH", "true").lower() == "true" and not os.getenv("GITHUB_ACTIONS")
 
 # 国家标签和别名
@@ -231,10 +231,14 @@ atexit.register(close_geoip_reader)
 
 def check_dependencies():
     """检查依赖"""
+    missing_packages = []
     for pkg in REQUIRED_PACKAGES:
         if not importlib.util.find_spec(pkg):
-            logger.error(f"缺少依赖包: {pkg}. 请安装: pip install {pkg}")
-            sys.exit(1)
+            missing_packages.append(pkg)
+    if missing_packages:
+        logger.error(f"缺少以下依赖包: {', '.join(missing_packages)}. 请安装: pip install {' '.join(missing_packages)}")
+        sys.exit(1)
+    logger.info("所有依赖包已安装")
     init_geoip_reader()
 
 def find_speedtest_script() -> str:
