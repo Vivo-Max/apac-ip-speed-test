@@ -110,6 +110,15 @@ jobs:
             exit 1
           fi
 
+      # 确认最新提交
+      - name: 确认最新提交
+        run: |
+          echo "当前分支："
+          git rev-parse --abbrev-ref HEAD
+          echo "最近提交："
+          git log -1 --pretty=%H --date=iso || echo "无提交历史"
+          git status
+
       # 验证推送文件
       - name: 验证推送内容
         run: |
@@ -122,7 +131,12 @@ jobs:
           done
           echo "所有目标文件存在且非空"
           # 获取最新提交的文件列表，排除元数据
-          git diff-tree --no-commit-id --name-only -r HEAD > commit_files.txt
+          # 如果没有提交历史，创建一个初始提交
+          git diff-tree --no-commit-id --name-only -r HEAD > commit_files.txt 2>/dev/null || {
+            echo "未找到提交历史，创建空提交以继续"
+            git commit --allow-empty -m "Initial empty commit for validation"
+            git diff-tree --no-commit-id --name-only -r HEAD > commit_files.txt
+          }
           echo "最近提交的文件："
           cat commit_files.txt
           # 检查是否包含预期文件
@@ -136,6 +150,12 @@ jobs:
           else
             echo "验证通过：仅提交 ip.txt, ip.csv, ips.txt（或空提交）"
           fi
+
+      # 清理临时文件
+      - name: 清理临时文件
+        run: |
+          rm -f commit_files.txt expected_files.txt unexpected_files.txt
+          echo "临时文件已清理"
 
       # 调试失败
       - name: 调试 Git 状态
