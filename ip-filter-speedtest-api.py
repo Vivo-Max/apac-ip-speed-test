@@ -665,7 +665,7 @@ def run_speed_test() -> str:
             logger.error(f"{FINAL_CSV} 未生成或内容无效")
             return None
         with open(FINAL_CSV, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+            lines = [line.strip() for line in f if line.strip()]  # 过滤空行
             node_count = len(lines) - 1 if lines else 0
             logger.info(f"{FINAL_CSV} 包含 {node_count} 个节点")
         return FINAL_CSV
@@ -688,7 +688,7 @@ def filter_speed_and_deduplicate(csv_file: str):
                 logger.error(f"{csv_file} 无有效表头")
                 return
             for row in reader:
-                if len(row) < 2:
+                if len(row) < 2 or not row[0].strip():  # 跳过空行或无效行
                     continue
                 key = (row[0], row[1])
                 if key not in seen:
