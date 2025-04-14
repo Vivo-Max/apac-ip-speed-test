@@ -22,7 +22,7 @@ jobs:
       - name: 设置 Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.12' # 调整为次新版本
 
       # 创建 requirements.txt
       - name: 创建依赖文件
@@ -40,17 +40,15 @@ jobs:
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip cache purge || true  # 清除缓存，防止旧版本干扰
+          pip install -r requirements.txt --force-reinstall
           echo "依赖安装完成"
+          pip list  # 输出已安装包列表
 
       # 验证依赖
       - name: 验证依赖
         run: |
-          python -c "import requests, charset_normalizer, geoip2, bs4, lxml, pandas"
-          if [ $? -ne 0 ]; then
-            echo "依赖验证失败"
-            exit 1
-          fi
+          python -c "import sys; missing = [pkg for pkg in ['requests', 'charset_normalizer', 'geoip2', 'bs4', 'lxml', 'pandas'] if not __import__(pkg, fromlist=[''])]; sys.exit(1 if missing else 0)" || { echo "缺少依赖: $(python -c "import sys; print([pkg for pkg in ['requests', 'charset_normalizer', 'geoip2', 'bs4', 'lxml', 'pandas'] if not __import__(pkg, fromlist=[''])])")"; exit 1; }
           echo "所有依赖验证通过"
 
       # 检查 Python 脚本语法
