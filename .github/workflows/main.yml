@@ -22,7 +22,7 @@ jobs:
       - name: 设置 Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12' # 调整为次新版本
+          python-version: '3.12'
 
       # 创建 requirements.txt
       - name: 创建依赖文件
@@ -125,4 +125,4 @@ jobs:
           git pull --rebase || true
           git add ip.txt ip.csv ips.txt
           git commit -m "Update ip.txt, ip.csv, ips.txt by Actions [skip ci]" || true
-          git push || true
+          git push || true–
