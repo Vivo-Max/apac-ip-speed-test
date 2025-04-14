@@ -58,7 +58,7 @@ COUNTRY_LABELS = {
     'TH': ('🇹🇭', '泰国'), 'ID': ('🇮🇩', '印度尼西亚'), 'PH': ('🇵🇭', '菲律宾'),
     'VN': ('🇻🇳', '越南'), 'IN': ('🇮🇳', '印度'), 'MO': ('🇲🇴', '澳门'),
     'KH': ('🇰🇭', '柬埔寨'), 'LA': ('🇱🇦', '老挝'), 'MM': ('🇲🇲', '缅甸'),
-    'MN': ('🇲🇳', '蒙古'), 'KP': ('🇰🇵', '朝鲜'), 'US': ('🇺🇸', '美国'),
+    'MN': ('🇲🇳', '蒙古'), 'KP': ('🇵🇵', '朝鲜'), 'US': ('🇺🇸', '美国'),
     'GB': ('🇬🇧', '英国'), 'DE': ('🇩🇪', '德国'), 'FR': ('🇫🇷', '法国'),
     'IT': ('🇮🇹', '意大利'), 'ES': ('🇪🇸', '西班牙'), 'NL': ('🇳🇱', '荷兰'),
     'FI': ('🇫🇮', '芬兰'), 'AU': ('🇦🇺', '澳大利亚'), 'CA': ('🇨🇦', '加拿大'),
@@ -621,7 +621,6 @@ def run_speed_test() -> str:
 
     logger.info("开始测速")
     try:
-        # 本地运行无超时，GitHub Actions 由工作流控制
         process = subprocess.Popen(
             [SPEEDTEST_SCRIPT],
             stdout=subprocess.PIPE,
@@ -644,7 +643,7 @@ def run_speed_test() -> str:
         stdout_thread.start()
         stderr_thread.start()
 
-        return_code = process.wait()  # 无超时，等待进程完成
+        return_code = process.wait()
         stdout_thread.join()
         stderr_thread.join()
         stdout = ''.join(stdout_lines)
@@ -714,7 +713,7 @@ def generate_ips_file(csv_file: str):
     try:
         with open(csv_file, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            next(reader)  # 跳过表头
+            next(reader)
             for row in reader:
                 if len(row) < 2:
                     continue
@@ -797,14 +796,12 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
         )
         if status_result.stdout:
             logger.warning(f"工作目录有未暂存更改：\n{status_result.stdout}")
-            # 清理未跟踪文件并暂存更改
-            subprocess.run(["git", "clean", "-fd"], check=True)  # 移除未跟踪文件
-            subprocess.run(["git", "add", "."], check=True)
-            subprocess.run(
-                ["git", "commit", "-m", "暂存未跟踪更改"],
-                check=True,
-                capture_output=True
-            )
+            # 重置除目标文件外的所有更改
+            for file in files_to_commit:
+                subprocess.run(["git", "add", file], check=True)  # 先暂存目标文件
+            subprocess.run(["git", "reset", "--", "."], check=True)  # 重置其他更改
+            # 清理未跟踪文件（如 __pycache__/）
+            subprocess.run(["git", "clean", "-fd"], check=True)
 
         # 拉取最新代码并变基
         pull_result = subprocess.run(
@@ -815,7 +812,7 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
         )
         logger.debug(f"Git pull output: {pull_result.stdout}")
 
-        # 添加指定文件
+        # 再次添加目标文件（防止变基后丢失）
         subprocess.run(["git", "add"] + files_to_commit, check=True)
         commit_msg = "Update ip.txt, ip.csv, and ips.txt with speed test results"
         commit_result = subprocess.run(
