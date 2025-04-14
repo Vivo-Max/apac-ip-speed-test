@@ -10,13 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 脚本推送需要
     steps:
       # 检出仓库代码
       - name: 检出代码
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 获取完整历史以支持变基
+          fetch-depth: 0 # 获取完整历史，脚本可能需要
 
       # 设置 Python 环境
       - name: 设置 Python
@@ -28,7 +28,7 @@ jobs:
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install requests charset-normalizer geoip2
+          pip install requests charset-normalizer geoip2 beautifulsoup4 lxml pandas
           echo "依赖安装完成"
 
       # 检查 Python 脚本语法
@@ -84,30 +84,4 @@ jobs:
             echo "ips.txt 已生成，节点数：$(wc -l < ips.txt)"
           else
             echo "ips.txt 生成失败"
-          fi
-
-      # 第三步：提交所有文件
-      - name: 提交所有文件
-        continue-on-error: true
-        timeout-minutes: 1
-        run: |
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-          files=""
-          for file in ip.txt ip.csv ips.txt; do
-            if [ -f "$file" ]; then
-              files="$files $file"
-            fi
-          done
-          if [ -n "$files" ]; then
-            git add $files
-            git commit -m "Final sync of ip.txt, ip.csv, ips.txt [skip ci]" || echo "无变化需要提交"
-            git pull --rebase
-            git push || {
-              echo "推送失败，尝试强制推送"
-              git push --force
-            }
-            echo "已提交和推送文件：$files"
-          else
-            echo "无文件需要提交"
           fi
