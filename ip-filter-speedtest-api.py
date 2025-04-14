@@ -55,7 +55,7 @@ HEADERS = {
     "Referer": "https://www.google.com/"
 }
 DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
-REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2', 'bs4', 'lxml', 'pandas']  # 修改 beautifulsoup4 为 bs4
+REQUIRED_PACKAGES = ['requests', 'charset_normalizer', 'geoip2', 'bs4', 'lxml', 'pandas']
 ENABLE_PUSH = os.getenv("ENABLE_PUSH", "true").lower() == "true" and not os.getenv("GITHUB_ACTIONS")
 
 # 国家标签和别名
@@ -93,7 +93,7 @@ COUNTRY_LABELS = {
     'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
     'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
     'IQ': ('🇮🇶', '伊拉克'), 'YE': ('🇾🇪', '也门'),
-    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
+    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('�LV', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
 }
 COUNTRY_ALIASES = {
     'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'KOREA, REPUBLIC OF': 'KR',
@@ -576,7 +576,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
     logger.info(f"去重后: {len(unique_server_port_pairs)} 个节点")
     return unique_server_port_pairs
 
-def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str PubMed: 37459255
+def get_country_from_ip(ip: str, cache: Dict[str, str]) -> str:
     """从 GeoIP 获取国家代码"""
     if ip in cache:
         return cache[ip]
