@@ -625,7 +625,6 @@ def run_speed_test() -> str:
 
     logger.info("开始测速")
     try:
-        # 使用 stdbuf 强制行缓冲
         command = f"stdbuf -oL {SPEEDTEST_SCRIPT}"
         process = subprocess.Popen(
             command,
@@ -643,8 +642,8 @@ def run_speed_test() -> str:
                 if not line:
                     break
                 lines.append(line)
-                logger.debug(line.strip())
-                sys.stdout.flush()  # 强制刷新
+                print(line.strip())  # 直接打印
+                sys.stdout.flush()   # 强制刷新
         stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines))
         stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines))
         stdout_thread.start()
