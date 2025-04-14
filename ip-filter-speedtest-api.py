@@ -801,6 +801,7 @@ def generate_ips_file(csv_file: str):
     return len(labeled_nodes)
 
 def detect_environment() -> tuple[str, bool]:
+    """检测运行环境和当前分支"""
     is_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
     try:
         branch = subprocess.run(
@@ -815,6 +816,11 @@ def detect_environment() -> tuple[str, bool]:
     return branch, is_github_actions
 
 def push_to_repository(files_to_commit: List[str], branch: str, is_github_actions: bool):
+    """推送文件到仓库，仅在本地运行时执行"""
+    if is_github_actions:
+        logger.info("GitHub Actions 环境，跳过脚本推送，交给工作流处理")
+        return
+
     if not files_to_commit:
         logger.info("无文件需要推送")
         return
@@ -825,48 +831,55 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
         logger.info("所有待提交文件都不存在，跳过推送")
         return
 
-    logger.info(f"准备推送文件: {', '.join(files_to_commit)} 到分支 {branch}")
-    
+    logger.info(f"本地运行，准备推送文件: {', '.join(files_to_commit)} 到分支 {branch}")
+
     try:
-        # 配置 Git 用户
-        subprocess.run(["git", "config", "--global", "user.name", "GitHub Actions Bot"], check=True)
-        subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
+        # 检查 Git 配置
+        user_name = subprocess.run(
+            ["git", "config", "user.name"],
+            capture_output=True,
+            text=True
+        ).stdout.strip()
+        user_email = subprocess.run(
+            ["git", "config", "user.email"],
+            capture_output=True,
+            text=True
+        ).stdout.strip()
+        if not user_name or not user_email:
+            logger.warning("未检测到 Git 用户配置，使用默认值")
+            subprocess.run(["git", "config", "user.name", "Local User"], check=True)
+            subprocess.run(["git", "config", "user.email", "local@example.com"], check=True)
 
-        if is_github_actions:
-            # 设置远程仓库 URL（使用 GITHUB_TOKEN）
-            repo_url = f"https://{os.environ['GITHUB_ACTOR']}:{os.environ['GITHUB_TOKEN']}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
-            subprocess.run(["git", "remote", "set-url", "origin", repo_url], check=True)
-        else:
-            # 本地环境：检查远程仓库是否存在
-            try:
-                remote_url = subprocess.run(
-                    ["git", "remote", "get-url", "origin"],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                ).stdout.strip()
-                if not remote_url:
-                    raise subprocess.CalledProcessError(1, "git remote get-url")
-            except subprocess.CalledProcessError:
-                logger.warning("本地环境未检测到远程仓库，跳过推送")
-                return
-            logger.info(f"本地环境：使用远程仓库 {remote_url}")
+        # 检查远程仓库
+        try:
+            remote_url = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+                check=True
+            ).stdout.strip()
+            logger.info(f"检测到远程仓库: {remote_url}")
+        except subprocess.CalledProcessError:
+            logger.error("未检测到远程仓库，请配置 'git remote add origin <url>'")
+            return
 
-        # 拉取最新代码并变基
-        pull_result = subprocess.run(
-            ["git", "pull", "--rebase", "origin", branch],
+        # 检查工作目录状态
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
             capture_output=True,
             text=True,
             check=True
-        )
-        logger.debug(f"Git pull output: {pull_result.stdout}")
+        ).stdout.strip()
+        if status:
+            logger.info("检测到工作目录更改，自动暂存")
+            subprocess.run(["git", "add", "."], check=True)
 
         # 添加目标文件
         for file in files_to_commit:
             subprocess.run(["git", "add", file], check=True)
             logger.info(f"已添加文件: {file}")
 
-        # 强制提交（允许空提交）
+        # 提交更改
         commit_msg = "Update ip.txt, ip.csv, and ips.txt with speed test results"
         commit_result = subprocess.run(
             ["git", "commit", "--allow-empty", "-m", commit_msg],
@@ -876,14 +889,29 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
         )
         logger.info(f"提交完成: {commit_result.stdout}")
 
-        # 强制推送，覆盖远程仓库
-        push_result = subprocess.run(
-            ["git", "push", "--force", "origin", f"HEAD:{branch}"],
+        # 拉取最新代码并变基
+        pull_result = subprocess.run(
+            ["git", "fetch", "origin"],
             capture_output=True,
             text=True,
             check=True
         )
-        logger.info(f"成功强制推送 {', '.join(files_to_commit)} 到分支 {branch}")
+        pull_result = subprocess.run(
+            ["git", "rebase", f"origin/{branch}"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        logger.debug(f"Git rebase output: {pull_result.stdout}")
+
+        # 推送更改
+        push_result = subprocess.run(
+            ["git", "push", "origin", branch],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        logger.info(f"成功推送 {', '.join(files_to_commit)} 到分支 {branch}")
         logger.debug(f"Git push output: {push_result.stdout}")
     except subprocess.CalledProcessError as e:
         logger.error(f"Git 操作失败: {e.stderr if e.stderr else e.stdout}")
@@ -892,6 +920,7 @@ def push_to_repository(files_to_commit: List[str], branch: str, is_github_action
     except Exception as e:
         logger.error(f"推送过程中发生异常: {e}")
         raise
+
 def main():
     start_time = time.time()
     logger.info("脚本开始")
@@ -905,7 +934,7 @@ def main():
 
     try:
         files_to_commit = []
-        
+
         if not args.generate_ips:
             ip_ports = []
             if os.path.exists(INPUT_FILE):
@@ -944,10 +973,9 @@ def main():
             if os.path.exists(IP_LIST_FILE):
                 files_to_commit.append(IP_LIST_FILE)
 
-            if files_to_commit and is_github_actions:
-                push_to_repository(files_to_commit, branch, is_github_actions)
-            else:
-                logger.info("本地运行或无文件可推送，跳过推送")
+        # 本地运行时推送文件
+        if files_to_commit:
+            push_to_repository(files_to_commit, branch, is_github_actions)
 
         logger.info(f"脚本完成 (总耗时: {time.time() - start_time:.2f} 秒)")
     except Exception as e:
