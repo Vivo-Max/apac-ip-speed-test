@@ -1,3 +1,4 @@
 requests
 pyyaml
-charset-normalizer
+charset_normalizer
+geoip2
