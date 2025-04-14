@@ -84,7 +84,7 @@ jobs:
             exit 1
           fi
 
-      # 第二步：测速并生成 ip.csv 和 ips.txt
+      # 第二步：测速并推送
       - name: 测速并推送
         timeout-minutes: 25
         run: |
@@ -119,24 +119,18 @@ jobs:
             fi
           done
           echo "所有目标文件存在且非空"
-          # 检查最新提交（允许无变更）
-          git status --porcelain > git_status.txt
-          if grep -E '^[ MAD].*ip\.(txt|csv)' git_status.txt; then
-            echo "检测到 ip.txt 或 ip.csv 修改，将提交"
-            git log -1 --name-only > commit_files.txt
-            echo "最近提交的文件："
-            cat commit_files.txt
-            grep -E 'ip\.txt|ip\.csv|ips\.txt' commit_files.txt > expected_files.txt
-            grep -v -E 'ip\.txt|ip\.csv|ips\.txt' commit_files.txt > unexpected_files.txt
-            if [ -s unexpected_files.txt ]; then
-              echo "错误：检测到意外文件被提交："
-              cat unexpected_files.txt
-              exit 1
-            else
-              echo "验证通过：仅提交 ip.txt, ip.csv, ips.txt"
-            fi
+          # 检查最新提交
+          git log -1 --name-only > commit_files.txt
+          echo "最近提交的文件："
+          cat commit_files.txt
+          grep -E 'ip\.txt|ip\.csv|ips\.txt' commit_files.txt > expected_files.txt
+          grep -v -E 'ip\.txt|ip\.csv|ips\.txt' commit_files.txt > unexpected_files.txt
+          if [ -s unexpected_files.txt ]; then
+            echo "错误：检测到意外文件被提交："
+            cat unexpected_files.txt
+            exit 1
           else
-            echo "无 ip.txt, ip.csv, ips.txt 修改，跳过提交验证"
+            echo "验证通过：仅提交 ip.txt, ip.csv, ips.txt（或空提交）"
           fi
 
       # 调试失败
