@@ -953,6 +953,7 @@ def run_speed_test() -> str:
         if system == "windows":
             command = [SPEEDTEST_SCRIPT]
         else:
+            # 检查 stdbuf 是否可用，Termux 和 macOS 可能缺失
             if shutil.which("stdbuf"):
                 command = ["stdbuf", "-oL", SPEEDTEST_SCRIPT]
             else:
