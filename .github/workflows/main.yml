@@ -42,10 +42,8 @@ jobs:
 
       - name: Prepare iptest.sh and iptest
         run: |
-          # 调试：检查工作目录和现有文件
           pwd
           ls -la
-          # 检查仓库中的 iptest.sh
           if [ -f iptest.sh ]; then
             echo "Found existing iptest.sh:"
             cat iptest.sh
@@ -63,12 +61,10 @@ jobs:
             printf '}\n' >> iptest.sh
           fi
           chmod +x iptest.sh
-          # 调试：确认 iptest.sh
           ls -l iptest.sh
           cat iptest.sh
           file iptest.sh
           od -c iptest.sh
-          # 检查 iptest 二进制
           if [ -f iptest ]; then
             chmod +x iptest
             file iptest
@@ -86,6 +82,8 @@ jobs:
 
       - name: Run proxy IP check
         timeout-minutes: 10
+        env:
+          REAL_TIME_LOG: "false"  # 禁用逐行打印
         run: |
           export SHLVL=1
           echo "Start time: $(date)"
@@ -93,11 +91,16 @@ jobs:
           python3 ip-filter-speedtest-api.py
           echo "结束时间: $(date)"
 
+      - name: Verify generated files
+        run: |
+          ls -l ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
+          cat speedtest.log || echo "speedtest.log not generated"
+
       - name: Commit and push generated files
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add ip.txt ip.csv ips.txt speedtest.log speedtest_details.log country_cache.json || echo "Some files missing"
+          git add ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
           git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
           git push || echo "No changes to push"
 
@@ -111,5 +114,4 @@ jobs:
             ip.csv
             ips.txt
             speedtest.log
-            speedtest_details.log
             country_cache.json
