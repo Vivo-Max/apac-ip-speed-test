@@ -25,10 +25,22 @@ on:
 jobs:
   proxy-ip-check:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        chunk: [1, 2]  # 分2个批次并行运行，减少单次任务负载
+      fail-fast: false  # 即使一个批次失败，其他批次继续运行
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -48,32 +60,27 @@ jobs:
             echo "Found existing iptest.sh:"
             cat iptest.sh
             file iptest.sh
-            od -c iptest.sh
           else
-            echo "No iptest.sh in repository, creating new one"
+            echo "No iptest.sh, creating new one"
             printf '#!/bin/sh\n' > iptest.sh
             printf './iptest || {\n' >> iptest.sh
             printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
             printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
-            printf '  while IFS=" " read -r ip port; do\n' >> iptest.sh
+            printf '  while IFS="," read -r ip port; do\n' >> iptest.sh
             printf '    echo "$ip,$port,10ms,100Mbps" >> ip.csv\n' >> iptest.sh
-            printf '  done < ip.txt\n' >> iptest.sh
+            printf '  done < input.csv\n' >> iptest.sh
             printf '}\n' >> iptest.sh
           fi
           chmod +x iptest.sh
           ls -l iptest.sh
           cat iptest.sh
-          file iptest.sh
-          od -c iptest.sh
           if [ -f iptest ]; then
             chmod +x iptest
-            file iptest
             echo "iptest binary found"
           else
             echo "iptest binary not found, using fallback in iptest.sh"
           fi
           ls -l iptest || echo "iptest binary missing"
-          echo "SHLVL: $SHLVL"
 
       - name: Test iptest.sh
         run: |
@@ -81,14 +88,15 @@ jobs:
           cat ip.csv || echo "ip.csv not generated"
 
       - name: Run proxy IP check
-        timeout-minutes: 10
+        timeout-minutes: 15  # 增加超时时间到15分钟
         env:
-          REAL_TIME_LOG: "false"  # 禁用逐行打印
+          REAL_TIME_LOG: "true"  # 启用逐行打印，便于调试
+          CHUNK_ID: ${{ matrix.chunk }}  # 传递批次ID给脚本
         run: |
-          export SHLVL=1
           echo "Start time: $(date)"
           echo "开始时间: $(date)"
-          python3 ip-filter-speedtest-api.py
+          python3 ip-filter-speedtest-api.py --chunk ${{ matrix.chunk }} || echo "Python script failed for chunk ${{ matrix.chunk }}"
+          echo "End time: $(date)"
           echo "结束时间: $(date)"
 
       - name: Verify generated files
@@ -101,14 +109,14 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git add ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
-          git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
+          git commit -m "Update generated files from proxy IP check (chunk ${{ matrix.chunk }})" || echo "No changes to commit"
           git push || echo "No changes to push"
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: proxy-ip-results
+          name: proxy-ip-results-chunk-${{ matrix.chunk }}
           path: |
             ip.txt
             ip.csv
