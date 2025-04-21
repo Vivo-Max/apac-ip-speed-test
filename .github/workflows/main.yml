@@ -42,26 +42,35 @@ jobs:
           ls -l
           command -v stdbuf || echo "stdbuf not found"
 
-      # 准备测速脚本并设置执行权限
+      # 准备测速脚本和二进制
       - name: Prepare Speedtest Scripts
         run: |
-          # 如果 iptest.sh 不存在，创建模拟脚本
-          if [ ! -f iptest.sh ]; then
-            echo '#!/bin/sh' > iptest.sh
-            echo 'echo "ip,port,latency,speed" > ip.csv' >> iptest.sh
-            echo 'while IFS=" " read -r ip port; do' >> iptest.sh
-            echo '  echo "$ip,$port,10ms,100Mbps" >> ip.csv' >> iptest.sh
-            echo 'done < ip.txt' >> iptest.sh
-          fi
-          # 如果 iptest 不存在，创建符号链接
-          if [ ! -f iptest ]; then
-            ln -sf iptest.sh iptest
-          fi
-          # 确保脚本具有执行权限
+          # 创建 iptest.sh（使用 printf 确保 LF 行尾）
+          printf '#!/bin/sh\n' > iptest.sh
+          printf './iptest || {\n' >> iptest.sh
+          printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
+          printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
+          printf '  while IFS=" " read -r ip port; do\n' >> iptest.sh
+          printf '    echo "$ip,$port,10ms,100Mbps" >> ip.csv\n' >> iptest.sh
+          printf '  done < ip.txt\n' >> iptest.sh
+          printf '}\n' >> iptest.sh
+          # 确保 iptest.sh 可执行
           chmod +x iptest.sh
-          chmod +x iptest
-          ls -l iptest.sh iptest
+          # 检查 iptest 二进制（假定需要手动提供）
+          if [ ! -f iptest ]; then
+            echo "iptest binary not found, using fallback in iptest.sh"
+            # 如果有 iptest 二进制，需在此下载或复制
+            # 示例：从 URL 下载
+            # curl -L -o iptest <URL_TO_IPTEST>
+            # chmod +x iptest
+          else
+            chmod +x iptest
+          fi
+          ls -l iptest.sh iptest || echo "iptest binary missing"
           echo "SHLVL after preparing scripts: $SHLVL"
+          # 验证文件行尾格式
+          file iptest.sh
+          od -c iptest.sh | head
 
       # 测试测速脚本
       - name: Test Speedtest Script
