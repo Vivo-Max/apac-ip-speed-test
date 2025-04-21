@@ -953,8 +953,14 @@ def run_speed_test() -> str:
         if system == "windows":
             command = [SPEEDTEST_SCRIPT]
         else:
-            shell = shutil.which("bash") or shutil.which("sh") or "sh"
-            command = ["stdbuf", "-oL", shell, SPEEDTEST_SCRIPT]
+            if shutil.which("stdbuf"):
+                command = ["stdbuf", "-oL", SPEEDTEST_SCRIPT]
+            else:
+                command = [SPEEDTEST_SCRIPT]
+        
+        logger.info(f"运行测速命令: {' '.join(command)}")
+        logger.info(f"当前目录: {os.getcwd()}")
+        logger.info(f"SHLVL: {os.environ.get('SHLVL', '未知')}")
         
         process = subprocess.Popen(
             command,
