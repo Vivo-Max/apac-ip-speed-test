@@ -929,6 +929,8 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     save_country_cache(country_cache)
     return IP_LIST_FILE
 
+import os
+
 def run_speed_test() -> str:
     if not SPEEDTEST_SCRIPT:
         logger.error("未找到测速脚本")
@@ -949,11 +951,13 @@ def run_speed_test() -> str:
 
     logger.info("开始测速")
     system = platform.system().lower()
+    # 检查环境变量 REAL_TIME_LOG，默认为 "true"（启用逐行打印）
+    real_time_log = os.getenv("REAL_TIME_LOG", "true").lower() == "true"
+
     try:
         if system == "windows":
             command = [SPEEDTEST_SCRIPT]
         else:
-            # 检查 stdbuf 是否可用，Termux 和 macOS 可能缺失
             if shutil.which("stdbuf"):
                 command = ["stdbuf", "-oL", SPEEDTEST_SCRIPT]
             else:
@@ -962,7 +966,7 @@ def run_speed_test() -> str:
         logger.info(f"运行测速命令: {' '.join(command)}")
         logger.info(f"当前目录: {os.getcwd()}")
         logger.info(f"SHLVL: {os.environ.get('SHLVL', '未知')}")
-        
+
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -973,16 +977,29 @@ def run_speed_test() -> str:
             errors='replace'
         )
         stdout_lines, stderr_lines = [], []
-        def read_stream(stream, lines):
+        node_count = 0
+        batch_size = 100  # 每 100 个节点打印一次进度
+
+        def read_stream(stream, lines, is_stdout=True):
+            nonlocal node_count
             while True:
                 line = stream.readline()
                 if not line:
                     break
                 lines.append(line)
-                print(line.strip())
-                sys.stdout.flush()
-        stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines))
-        stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines))
+                if is_stdout:
+                    node_count += 1
+                    if real_time_log:
+                        # 实时打印（Termux 或本地）
+                        print(line.strip())
+                        sys.stdout.flush()
+                    elif node_count % batch_size == 0:
+                        # GitHub Actions 分批打印
+                        logger.info(f"已测速 {node_count}/{total_nodes} 个节点")
+                        sys.stdout.flush()
+
+        stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines, True))
+        stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines, False))
         stdout_thread.start()
         stderr_thread.start()
 
@@ -991,12 +1008,21 @@ def run_speed_test() -> str:
         stderr_thread.join()
         stdout = ''.join(stdout_lines)
         stderr = ''.join(stderr_lines)
-        if stdout:
-            logger.info(f"测速输出: {stdout}")
+
+        # 始终将详细测速结果写入 speedtest.log
+        with open("speedtest.log", "a", encoding="utf-8") as f:
+            f.write(f"测速开始时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            if stdout:
+                f.write(stdout)
+            if stderr:
+                f.write(f"错误输出:\n{stderr}\n")
+            f.write(f"测速结束时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+
+        logger.info(f"测速完成，耗时: {time.time() - start_time:.2f} 秒")
+        logger.info(f"总节点数: {node_count}")
         if stderr:
             logger.warning(f"测速错误: {stderr}")
 
-        logger.info(f"测速完成，耗时: {time.time() - start_time:.2f} 秒")
         if return_code != 0:
             logger.error(f"测速失败，返回码: {return_code}")
             return None
