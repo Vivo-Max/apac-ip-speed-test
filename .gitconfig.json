@@ -1,0 +1,7 @@
+{
+  "user_name": "用户名",
+  "user_email": "邮箱",
+  "repo_name": "仓库名称",
+  "ssh_key_path": "SSH密钥路径",
+  "git_user_name": "用户名"
+}
