@@ -1,107 +1,74 @@
-name: Weekly IP Filtering and Testing
+name: Proxy IP Check
+
+permissions:
+  contents: write  # 授予仓库内容的写权限，允许 git push
 
 on:
-  schedule:
-    # 每周一凌晨 00:00 UTC 运行
-    - cron: '0 0 * * 1'
-  workflow_dispatch:
-    # 支持手动触发
   push:
     branches:
       - main
-    paths-ignore:
-      # 忽略脚本更新，避免触发自动运行
+    paths:
+      - 'input.csv'
       - 'ip-filter-speedtest-api.py'
+      - 'iptest.sh'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'input.csv'
+      - 'ip-filter-speedtest-api.py'
+      - 'iptest.sh'
+  schedule:
+    - cron: '0 0 * * 1'  # 每周一 UTC 时间 00:00 运行
+  workflow_dispatch:
 
 jobs:
-  ip-filtering:
+  proxy-ip-check:
     runs-on: ubuntu-latest
 
     steps:
-      # 检出代码
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 设置 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      # 安装依赖
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
+          pip install requests charset-normalizer
 
-      # 调试环境
-      - name: Debug Environment
+      - name: Make iptest.sh executable
         run: |
-          echo "SHLVL=$SHLVL"
-          pwd
-          ls -l
-          command -v stdbuf || echo "stdbuf not found"
-
-      # 准备测速脚本和二进制
-      - name: Prepare Speedtest Scripts
-        run: |
-          # 创建 iptest.sh（使用 printf 确保 LF 行尾）
-          printf '#!/bin/sh\n' > iptest.sh
-          printf './iptest || {\n' >> iptest.sh
-          printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
-          printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
-          printf '  while IFS=" " read -r ip port; do\n' >> iptest.sh
-          printf '    echo "$ip,$port,10ms,100Mbps" >> ip.csv\n' >> iptest.sh
-          printf '  done < ip.txt\n' >> iptest.sh
-          printf '}\n' >> iptest.sh
-          # 确保 iptest.sh 可执行
           chmod +x iptest.sh
-          # 检查 iptest 二进制（假定需要手动提供）
-          if [ ! -f iptest ]; then
-            echo "iptest binary not found, using fallback in iptest.sh"
-            # 如果有 iptest 二进制，需在此下载或复制
-            # 示例：从 URL 下载
-            # curl -L -o iptest <URL_TO_IPTEST>
-            # chmod +x iptest
-          else
-            chmod +x iptest
-          fi
-          ls -l iptest.sh iptest || echo "iptest binary missing"
-          echo "SHLVL after preparing scripts: $SHLVL"
-          # 验证文件行尾格式
-          file iptest.sh
-          od -c iptest.sh | head
+          chmod +x iptest || echo "iptest binary not found"
 
-      # 测试测速脚本
-      - name: Test Speedtest Script
+      - name: Run proxy IP check
+        timeout-minutes: 10
         run: |
-          ./iptest.sh
-          cat ip.csv || echo "ip.csv not generated"
+          echo "Start time: $(date)"
+          echo "开始时间: $(date)"
+          python3 ip-filter-speedtest-api.py
+          echo "结束时间: $(date)"
 
-      # 运行 IP 筛选和测速脚本
-      - name: Run IP Filtering Script
-        env:
-          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
-        run: |
-          export SHLVL=1  # 重置 SHLVL
-          python ip-filter-speedtest-api.py --update-geoip
-
-      # 检查生成的文件
-      - name: Verify Output Files
-        run: |
-          ls -l ip.txt ip.csv ips.txt || echo "Some output files are missing"
-
-      # 配置 Git
-      - name: Configure Git
+      - name: Commit and push generated files
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          git add ip.txt ip.csv ips.txt speedtest.log country_cache.json
+          git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
+          git push || echo "No changes to push"
 
-      # 提交和推送更改
-      - name: Commit and Push Changes
-        run: |
-          git add ip.txt ip.csv ips.txt
-          git commit -m "Update IP data - $(date '+%Y-%m-%d %H:%M:%S')"
-          git push origin main
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-ip-results
+          path: |
+            ip.txt
+            ip.csv
+            ips.txt
+            speedtest.log
+            country_cache.json
