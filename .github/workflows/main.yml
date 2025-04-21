@@ -9,13 +9,15 @@ on:
       - main
     paths:
       - 'input.csv'
-      - 'bin/iptest'  # 假设 iptest 二进制在 bin 目录
+      - 'iptest'  # 监控 iptest 二进制
+      - 'iptest.sh'
   pull_request:
     branches:
       - main
     paths:
       - 'input.csv'
-      - 'bin/iptest'
+      - 'iptest'
+      - 'iptest.sh'
   schedule:
     - cron: '0 0 * * 1'  # 每周一 UTC 时间 00:00 运行
   workflow_dispatch:
@@ -40,29 +42,42 @@ jobs:
 
       - name: Prepare iptest.sh and iptest
         run: |
-          # 创建 iptest.sh（使用 printf 确保 LF 行尾）
-          printf '#!/bin/sh\n' > iptest.sh
-          printf './bin/iptest || {\n' >> iptest.sh
-          printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
-          printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
-          printf '  while IFS=" " read -r ip port; do\n' >> iptest.sh
-          printf '    echo "$ip,$port,10ms,100Mbps" >> ip.csv\n' >> iptest.sh
-          printf '  done < ip.txt\n' >> iptest.sh
-          printf '}\n' >> iptest.sh
+          # 调试：检查工作目录和现有文件
+          pwd
+          ls -la
+          # 检查仓库中的 iptest.sh
+          if [ -f iptest.sh ]; then
+            echo "Found existing iptest.sh:"
+            cat iptest.sh
+            file iptest.sh
+            od -c iptest.sh
+          else
+            echo "No iptest.sh in repository, creating new one"
+            # 创建 iptest.sh（根目录，调用 ./iptest）
+            printf '#!/bin/sh\n' > iptest.sh
+            printf './iptest || {\n' >> iptest.sh
+            printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
+            printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
+            printf '  while IFS=" " read -r ip port; do\n' >> iptest.sh
+            printf '    echo "$ip,$port,10ms,100Mbps" >> ip.csv\n' >> iptest.sh
+            printf '  done < ip.txt\n' >> iptest.sh
+            printf '}\n' >> iptest.sh
+          fi
           chmod +x iptest.sh
+          # 调试：确认 iptest.sh
+          ls -l iptest.sh
+          cat iptest.sh
+          file iptest.sh
+          od -c iptest.sh
           # 检查 iptest 二进制
-          if [ -f bin/iptest ]; then
-            chmod +x bin/iptest
-            file bin/iptest
+          if [ -f iptest ]; then
+            chmod +x iptest
+            file iptest
+            echo "iptest binary found"
           else
             echo "iptest binary not found, using fallback in iptest.sh"
-            # 可选：下载 iptest
-            # curl -L -o bin/iptest https://example.com/iptest
-            # chmod +x bin/iptest
           fi
-          ls -l iptest.sh bin/iptest || echo "iptest binary missing"
-          file iptest.sh
-          od -c iptest.sh | head
+          ls -l iptest || echo "iptest binary missing"
           echo "SHLVL: $SHLVL"
 
       - name: Test iptest.sh
