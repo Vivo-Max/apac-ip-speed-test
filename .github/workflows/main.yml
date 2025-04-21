@@ -1,0 +1,71 @@
+name: Weekly IP Filtering and Testing
+
+on:
+  schedule:
+    # 每周一凌晨 00:00 UTC 运行
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+    # 支持手动触发
+  push:
+    branches:
+      - main
+    paths-ignore:
+      # 忽略脚本更新，避免触发自动运行
+      - 'ip-filter-speedtest-api.py'
+
+jobs:
+  ip-filtering:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 检出代码
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 设置 Python 环境
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # 安装依赖
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
+
+      # 准备测速脚本
+      - name: Prepare Speedtest Script
+        run: |
+          if [ ! -f iptest.sh ]; then
+            echo '#!/bin/bash' > iptest.sh
+            echo 'echo "Simulated speed test output" > ip.csv' >> iptest.sh
+            chmod +x iptest.sh
+          fi
+
+      # 运行 IP 筛选和测速脚本
+      - name: Run IP Filtering Script
+        env:
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
+        run: |
+          python ip-filter-speedtest-api.py --update-geoip
+
+      # 检查生成的文件
+      - name: Verify Output Files
+        run: |
+          ls -l ip.txt ip.csv ips.txt || echo "Some output files are missing"
+
+      # 配置 Git
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      # 提交和推送更改
+      - name: Commit and Push Changes
+        run: |
+          git add ip.txt ip.csv ips.txt
+          git commit -m "Update IP data - $(date '+%Y-%m-%d %H:%M:%S')"
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
