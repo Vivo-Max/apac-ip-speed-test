@@ -34,18 +34,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
 
+      # 调试环境
+      - name: Debug Environment
+        run: |
+          echo "SHLVL=$SHLVL"
+          pwd
+          ls -l
+          command -v stdbuf || echo "stdbuf not found"
+
       # 准备测速脚本并设置执行权限
       - name: Prepare Speedtest Scripts
         run: |
           # 如果 iptest.sh 不存在，创建模拟脚本
           if [ ! -f iptest.sh ]; then
-            echo '#!/bin/bash' > iptest.sh
+            echo '#!/bin/sh' > iptest.sh
             echo 'echo "ip,port,latency,speed" > ip.csv' >> iptest.sh
             echo 'while IFS=" " read -r ip port; do' >> iptest.sh
             echo '  echo "$ip,$port,10ms,100Mbps" >> ip.csv' >> iptest.sh
             echo 'done < ip.txt' >> iptest.sh
           fi
-          # 如果 iptest 不存在，创建符号链接或复制 iptest.sh
+          # 如果 iptest 不存在，创建符号链接
           if [ ! -f iptest ]; then
             ln -sf iptest.sh iptest
           fi
@@ -53,12 +61,20 @@ jobs:
           chmod +x iptest.sh
           chmod +x iptest
           ls -l iptest.sh iptest
+          echo "SHLVL after preparing scripts: $SHLVL"
+
+      # 测试测速脚本
+      - name: Test Speedtest Script
+        run: |
+          ./iptest.sh
+          cat ip.csv || echo "ip.csv not generated"
 
       # 运行 IP 筛选和测速脚本
       - name: Run IP Filtering Script
         env:
           MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
         run: |
+          export SHLVL=1  # 重置 SHLVL
           python ip-filter-speedtest-api.py --update-geoip
 
       # 检查生成的文件
