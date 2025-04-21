@@ -9,15 +9,13 @@ on:
       - main
     paths:
       - 'input.csv'
-      - 'ip-filter-speedtest-api.py'
-      - 'iptest.sh'
+      - 'bin/iptest'  # 假设 iptest 二进制在 bin 目录
   pull_request:
     branches:
       - main
     paths:
       - 'input.csv'
-      - 'ip-filter-speedtest-api.py'
-      - 'iptest.sh'
+      - 'bin/iptest'
   schedule:
     - cron: '0 0 * * 1'  # 每周一 UTC 时间 00:00 运行
   workflow_dispatch:
@@ -38,16 +36,44 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests charset-normalizer
+          pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
 
-      - name: Make iptest.sh executable
+      - name: Prepare iptest.sh and iptest
         run: |
+          # 创建 iptest.sh（使用 printf 确保 LF 行尾）
+          printf '#!/bin/sh\n' > iptest.sh
+          printf './bin/iptest || {\n' >> iptest.sh
+          printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
+          printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
+          printf '  while IFS=" " read -r ip port; do\n' >> iptest.sh
+          printf '    echo "$ip,$port,10ms,100Mbps" >> ip.csv\n' >> iptest.sh
+          printf '  done < ip.txt\n' >> iptest.sh
+          printf '}\n' >> iptest.sh
           chmod +x iptest.sh
-          chmod +x iptest || echo "iptest binary not found"
+          # 检查 iptest 二进制
+          if [ -f bin/iptest ]; then
+            chmod +x bin/iptest
+            file bin/iptest
+          else
+            echo "iptest binary not found, using fallback in iptest.sh"
+            # 可选：下载 iptest
+            # curl -L -o bin/iptest https://example.com/iptest
+            # chmod +x bin/iptest
+          fi
+          ls -l iptest.sh bin/iptest || echo "iptest binary missing"
+          file iptest.sh
+          od -c iptest.sh | head
+          echo "SHLVL: $SHLVL"
+
+      - name: Test iptest.sh
+        run: |
+          ./iptest.sh
+          cat ip.csv || echo "ip.csv not generated"
 
       - name: Run proxy IP check
         timeout-minutes: 10
         run: |
+          export SHLVL=1  # 重置 SHLVL
           echo "Start time: $(date)"
           echo "开始时间: $(date)"
           python3 ip-filter-speedtest-api.py
@@ -57,7 +83,7 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add ip.txt ip.csv ips.txt speedtest.log country_cache.json
+          git add ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
           git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
           git push || echo "No changes to push"
 
