@@ -25,10 +25,6 @@ on:
 jobs:
   proxy-ip-check:
     runs-on: ubuntu-latest
-    env:
-      PYTHONUNBUFFERED: "1"  # 禁用 Python 输出缓冲
-      FORCE_FLUSH: "true"    # 强制 flush 环境变量（供调试）
-      SKIP_SPEED_TEST: "true"  # 新增环境变量，跳过 ip-filter-speedtest-api.py 中的测速
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,15 +47,7 @@ jobs:
           echo "Installing dependencies..."
           python -m pip install --upgrade pip
           pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
-          # 安装 expect 包以支持 unbuffer
-          sudo apt-get update && sudo apt-get install -y expect
           echo "Dependencies installed."
-
-      - name: Debug input file
-        run: |
-          echo "Checking input file..."
-          echo "Input file size: $(wc -l < input.csv) lines"
-          head -n 5 input.csv || echo "input.csv is empty or missing"
 
       - name: Run IP test using iptest.sh
         timeout-minutes: 30  # 测速可能耗时，设置超时
@@ -69,9 +57,9 @@ jobs:
           if [ -f iptest.sh ]; then
             echo "Found existing iptest.sh"
           else
-            echo "No iptest.sh, creating new one with unbuffer"
+            echo "No iptest.sh, creating new one"
             printf '#!/bin/sh\n' > iptest.sh
-            printf 'unbuffer ./iptest || {\n' >> iptest.sh
+            printf './iptest || {\n' >> iptest.sh
             printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
             printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
             printf '  while IFS="," read -r ip port; do\n' >> iptest.sh
@@ -86,54 +74,30 @@ jobs:
           else
             echo "iptest binary not found, using fallback in iptest.sh"
           fi
-          # 运行 iptest.sh，输出重定向到 ip_test.log
-          unbuffer ./iptest.sh > ip_test.log 2>&1
-          # 将 ip_test.log 追加到 speedtest.log
-          cat ip_test.log >> speedtest.log
+          ./iptest.sh > ip_test.log 2>&1
           echo "IP test completed at $(date)"
-          # 检查 ip.csv 是否生成
-          if [ -f ip.csv ]; then
-            echo "ip.csv generated successfully"
-            head -n 5 ip.csv
-          else
-            echo "ip.csv not generated"
-          fi
+          cat ip.csv || echo "ip.csv not generated"
 
       - name: Process IP test results
         env:
-          REAL_TIME_LOG: "true"  # 保留原环境变量
+          REAL_TIME_LOG: "true"  # 启用逐行打印，便于调试
         run: |
           echo "Starting IP test processing at $(date)"
-          # 运行 Python 脚本，输出重定向到 speedtest_details.log
-          # SKIP_SPEED_TEST 环境变量指示跳过测速，使用已有结果
-          unbuffer python3 ip-filter-speedtest-api.py > speedtest_details.log 2>&1 || echo "Python script failed"
-          # 将详细日志追加到 speedtest.log
-          cat speedtest_details.log >> speedtest.log
+          python3 ip-filter-speedtest-api.py > speedtest_details.log 2>&1 || echo "Python script failed"
           echo "IP test processing completed at $(date)"
-          # 检查 speedtest.log 是否生成
-          if [ -f speedtest.log ]; then
-            echo "speedtest.log generated successfully"
-            # 显示最后 5 行进度信息作为摘要
-            grep -E "已完成: [0-9]+.[0-9]+%" speedtest.log | tail -n 5 || echo "No progress lines found in speedtest.log"
-          else
-            echo "speedtest.log not generated"
-          fi
 
       - name: Verify generated files
         run: |
           echo "Verifying generated files..."
-          ls -l ip.txt ip.csv ips.txt speedtest.log speedtest_details.log country_cache.json || echo "Some files missing"
-          echo "speedtest.log content (last 20 lines):"
-          tail -n 20 speedtest.log || echo "speedtest.log not generated"
-          echo "speedtest_details.log content (last 20 lines):"
-          tail -n 20 speedtest_details.log || echo "speedtest_details.log not generated"
+          ls -l ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
+          cat speedtest.log || echo "speedtest.log not generated"
 
       - name: Commit and push generated files
         run: |
           echo "Committing generated files..."
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add ip.txt ip.csv ips.txt speedtest.log speedtest_details.log country_cache.json || echo "Some files missing"
+          git add ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
           git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
           git push || echo "No changes to push"
           echo "Commit and push completed."
@@ -148,5 +112,4 @@ jobs:
             ip.csv
             ips.txt
             speedtest.log
-            speedtest_details.log
             country_cache.json
