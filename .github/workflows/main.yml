@@ -25,11 +25,6 @@ on:
 jobs:
   proxy-ip-check:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        chunk: [1, 2]  # 分2个批次并行运行，减少单次任务负载
-      fail-fast: false  # 即使一个批次失败，其他批次继续运行
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -91,11 +86,10 @@ jobs:
         timeout-minutes: 15  # 增加超时时间到15分钟
         env:
           REAL_TIME_LOG: "true"  # 启用逐行打印，便于调试
-          CHUNK_ID: ${{ matrix.chunk }}  # 传递批次ID给脚本
         run: |
           echo "Start time: $(date)"
           echo "开始时间: $(date)"
-          python3 ip-filter-speedtest-api.py --chunk ${{ matrix.chunk }} || echo "Python script failed for chunk ${{ matrix.chunk }}"
+          python3 ip-filter-speedtest-api.py || echo "Python script failed"
           echo "End time: $(date)"
           echo "结束时间: $(date)"
 
@@ -109,14 +103,14 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git add ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
-          git commit -m "Update generated files from proxy IP check (chunk ${{ matrix.chunk }})" || echo "No changes to commit"
+          git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
           git push || echo "No changes to push"
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: proxy-ip-results-chunk-${{ matrix.chunk }}
+          name: proxy-ip-results
           path: |
             ip.txt
             ip.csv
