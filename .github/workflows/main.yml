@@ -44,18 +44,18 @@ jobs:
 
       - name: Install dependencies
         run: |
-          echo "Installing dependencies..."
           python -m pip install --upgrade pip
           pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
-          echo "Dependencies installed."
 
       - name: Run IP test using iptest.sh
         timeout-minutes: 30  # 测速可能耗时，设置超时
         run: |
-          echo "Starting IP test at $(date)"
+          echo "Start time: $(date)"
+          echo "开始时间: $(date)"
           # 准备并运行 iptest.sh
           if [ -f iptest.sh ]; then
-            echo "Found existing iptest.sh"
+            echo "Found existing iptest.sh:"
+            cat iptest.sh
           else
             echo "No iptest.sh, creating new one"
             printf '#!/bin/sh\n' > iptest.sh
@@ -74,33 +74,33 @@ jobs:
           else
             echo "iptest binary not found, using fallback in iptest.sh"
           fi
-          ./iptest.sh > ip_test.log 2>&1
-          echo "IP test completed at $(date)"
+          ./iptest.sh
+          echo "End time: $(date)"
+          echo "结束时间: $(date)"
           cat ip.csv || echo "ip.csv not generated"
 
       - name: Process IP test results
         env:
           REAL_TIME_LOG: "true"  # 启用逐行打印，便于调试
         run: |
-          echo "Starting IP test processing at $(date)"
-          python3 ip-filter-speedtest-api.py > speedtest_details.log 2>&1 || echo "Python script failed"
-          echo "IP test processing completed at $(date)"
+          echo "Start time: $(date)"
+          echo "开始时间: $(date)"
+          python3 ip-filter-speedtest-api.py || echo "Python script failed"
+          echo "End time: $(date)"
+          echo "结束时间: $(date)"
 
       - name: Verify generated files
         run: |
-          echo "Verifying generated files..."
           ls -l ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
           cat speedtest.log || echo "speedtest.log not generated"
 
       - name: Commit and push generated files
         run: |
-          echo "Committing generated files..."
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git add ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
           git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
           git push || echo "No changes to push"
-          echo "Commit and push completed."
 
       - name: Upload results
         if: always()
