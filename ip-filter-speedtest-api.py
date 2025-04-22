@@ -734,7 +734,6 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
 
     logger.info(f"数据源样本 (前 5 行): {lines[:5]}")
 
-    # 尝试解析 JSON 格式
     try:
         data = json.loads(content)
         for item in data:
@@ -757,7 +756,6 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
     except json.JSONDecodeError as e:
         logger.info(f"JSON 解析失败: {e}")
 
-    # 检测分隔符并解析 CSV 格式
     delimiter = detect_delimiter(lines)
     if not delimiter:
         logger.warning("无法检测分隔符，假定为逗号")
@@ -782,7 +780,6 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
         else:
             logger.info("表头中不包含国家列，将逐行逐列搜索国家信息")
 
-    # 正则表达式匹配 IP:Port 格式
     ip_port_pattern = re.compile(
         r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})'
     )
@@ -791,7 +788,6 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
         line = line.strip()
         if not line or line.startswith('#'):
             continue
-        # 尝试匹配 IP:Port 格式
         match = ip_port_pattern.match(line)
         if match:
             server = match.group(1).strip('[]')
@@ -814,7 +810,6 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
             else:
                 invalid_lines.append(f"第 {i} 行: {line} (端口无效)")
             continue
-        # 尝试解析 CSV 格式
         if delimiter:
             fields = line.split(delimiter)
             if len(fields) < max(ip_col, port_col) + 1:
