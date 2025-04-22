@@ -26,7 +26,8 @@ jobs:
   proxy-ip-check:
     runs-on: ubuntu-latest
     env:
-      PYTHONUNBUFFERED: "1"  # 禁用 Python 输出缓冲，确保实时日志
+      PYTHONUNBUFFERED: "1"  # 禁用 Python 输出缓冲
+      FORCE_FLUSH: "true"    # 强制 flush 环境变量（供调试）
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -48,6 +49,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
+          # 安装 expect 包以支持 unbuffer
+          sudo apt-get update && sudo apt-get install -y expect
+
+      - name: Debug input file
+        run: |
+          echo "Input file size: $(wc -l < input.csv) lines"
+          head -n 5 input.csv || echo "input.csv is empty or missing"
 
       - name: Run IP test using iptest.sh
         timeout-minutes: 30  # 测速可能耗时，设置超时
@@ -59,9 +67,9 @@ jobs:
             echo "Found existing iptest.sh:"
             cat iptest.sh
           else
-            echo "No iptest.sh, creating new one"
+            echo "No iptest.sh, creating new one with unbuffer"
             printf '#!/bin/sh\n' > iptest.sh
-            printf './iptest || {\n' >> iptest.sh
+            printf 'unbuffer ./iptest || {\n' >> iptest.sh
             printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
             printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
             printf '  while IFS="," read -r ip port; do\n' >> iptest.sh
@@ -76,7 +84,8 @@ jobs:
           else
             echo "iptest binary not found, using fallback in iptest.sh"
           fi
-          stdbuf -oL ./iptest.sh  # 使用 stdbuf 禁用缓冲，确保实时输出
+          # 使用 unbuffer 运行 iptest.sh，确保实时输出
+          unbuffer ./iptest.sh | tee -a speedtest.log
           echo "End time: $(date)"
           echo "结束时间: $(date)"
           cat ip.csv || echo "ip.csv not generated"
@@ -87,14 +96,16 @@ jobs:
         run: |
           echo "Start time: $(date)"
           echo "开始时间: $(date)"
-          stdbuf -oL python3 ip-filter-speedtest-api.py || echo "Python script failed"  # 使用 stdbuf 确保 Python 脚本输出实时
+          # 使用 unbuffer 运行 Python 脚本，并将输出同时写入日志
+          unbuffer python3 ip-filter-speedtest-api.py | tee -a speedtest.log || echo "Python script failed"
           echo "End time: $(date)"
           echo "结束时间: $(date)"
 
       - name: Verify generated files
         run: |
           ls -l ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
-          cat speedtest.log || echo "speedtest.log not generated"
+          echo "speedtest.log content (last 20 lines):"
+          tail -n 20 speedtest.log || echo "speedtest.log not generated"
 
       - name: Commit and push generated files
         run: |
