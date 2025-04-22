@@ -99,11 +99,11 @@ COUNTRY_LABELS = {
     'MX': ('🇲🇽', '墨西哥'), 'VE': ('🇻🇪', '委内瑞拉'), 'SE': ('🇸🇪', '瑞典'),
     'NO': ('🇳🇴', '挪威'), 'DK': ('🇩🇰', '丹麦'), 'CH': ('🇨🇭', '瑞士'),
     'AT': ('🇦🇹', '奥地利'), 'BE': ('🇧🇪', '比利时'), 'IE': ('🇮🇪', '爱尔兰'),
-    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇧🇬', '保加利亚'),
+    'PT': ('🇵🇹', '葡萄牙'), 'GR': ('🇬🇷', '希腊'), 'BG': ('🇬🇷', '保加利亚'),
     'SK': ('🇸🇰', '斯洛伐克'), 'SI': ('🇸🇮', '斯洛文尼亚'), 'HR': ('🇭🇷', '克罗地亚'),
     'RS': ('🇷🇸', '塞尔维亚'), 'BA': ('🇧🇦', '波黑'), 'MK': ('🇲🇰', '北马其顿'),
     'AL': ('🇦🇱', '阿尔巴尼亚'), 'KZ': ('🇰🇿', '哈萨克斯坦'), 'UZ': ('🇺🇿', '乌兹别克斯坦'),
-    'KG': ('🇰🇬', '吉尔吉斯斯坦'), 'TJ': ('�TJ', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
+    'KG': ('🇰🇬', '吉尔吉斯斯坦'), 'TJ': ('🇹🇯', '塔吉克斯坦'), 'TM': ('🇹🇲', '土库曼斯坦'),
     'GE': ('🇬🇪', '格鲁吉亚'), 'AM': ('🇦🇲', '亚美尼亚'), 'AZ': ('🇦🇿', '阿塞拜疆'),
     'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
     'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
@@ -706,7 +706,7 @@ def fetch_and_save_to_temp_file(url: str) -> str:
         logger.error(f"无法下载 URL: {e}")
         return ''
 
-def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
+def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str, str]]:
     if not os.path.exists(file_path):
         logger.error(f"文件 {file_path} 不存在")
         return []
@@ -719,11 +719,12 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
     except UnicodeDecodeError as e:
         logger.error(f"无法解码文件 {file_path}: {e}")
         return []
-    ip_ports = extract_ip_ports_from_content(content)
+    source = "input.csv" if file_path == INPUT_FILE else "URL"
+    ip_ports = extract_ip_ports_from_content(content, source)
     logger.info(f"文件 {file_path} 解析完成 (耗时: {time.time() - start_time:.2f} 秒)")
     return ip_ports
 
-def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
+def extract_ip_ports_from_content(content: str, source: str) -> List[Tuple[str, int, str, str]]:
     server_port_pairs = []
     invalid_lines = []
     content = content.replace('\r\n', '\n').replace('\r', '\n')
@@ -750,8 +751,8 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                 item.get('area', '')
             )
             if is_valid_ip(ip) and is_valid_port(str(port)):
-                server_port_pairs.append((ip, int(port), country))
-        logger.info(f"从 JSON 解析出 {len(server_port_pairs)} 个节点，其中 {sum(1 for _, _, c in server_port_pairs if c)} 个有国家信息")
+                server_port_pairs.append((ip, int(port), country, source))
+        logger.info(f"从 JSON 解析出 {len(server_port_pairs)} 个节点，其中 {sum(1 for _, _, c, _ in server_port_pairs if c)} 个有国家信息")
         return list(dict.fromkeys(server_port_pairs))
     except json.JSONDecodeError as e:
         logger.info(f"JSON 解析失败: {e}")
@@ -806,7 +807,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                             logger.info(f"第 {i} 行: 从第 {col + 1} 列提取国家: {field} -> {country}")
                             break
             if is_valid_port(port):
-                server_port_pairs.append((server, int(port), country))
+                server_port_pairs.append((server, int(port), country, source))
             else:
                 invalid_lines.append(f"第 {i} 行: {line} (端口无效)")
             continue
@@ -829,7 +830,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                         logger.info(f"第 {i} 行: 从第 {col + 1} 列提取国家: {field} -> {country}")
                         break
             if is_valid_ip(server) and is_valid_port(port_str):
-                server_port_pairs.append((server, int(port_str), country))
+                server_port_pairs.append((server, int(port_str), country, source))
             else:
                 invalid_lines.append(f"第 {i} 行: {line} (IP 或端口无效)")
         else:
@@ -837,7 +838,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
 
     if invalid_lines:
         logger.info(f"发现 {len(invalid_lines)} 个无效条目")
-    logger.info(f"解析出 {len(server_port_pairs)} 个节点，其中 {sum(1 for _, _, c in server_port_pairs if c)} 个有国家信息")
+    logger.info(f"解析出 {len(server_port_pairs)} 个节点，其中 {sum(1 for _, _, c, _ in server_port_pairs if c)} 个有国家信息")
     unique_server_port_pairs = list(dict.fromkeys(server_port_pairs))
     logger.info(f"去重后: {len(unique_server_port_pairs)} 个节点")
     return unique_server_port_pairs
@@ -867,7 +868,7 @@ def get_countries_from_ips(ips: List[str], cache: Dict[str, str]) -> List[str]:
                 cache[ip] = ''
     return [cache[ip] for ip in ips]
 
-def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
+def write_ip_list(ip_ports: List[Tuple[str, int, str, str]]) -> str:
     if not ip_ports:
         logger.error(f"没有有效的节点来生成 {IP_LIST_FILE}")
         return None
@@ -879,28 +880,35 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     filtered_counts = defaultdict(int)
     logger.info(f"开始处理 {len(ip_ports)} 个节点...")
 
-    from_source = sum(1 for _, _, country in ip_ports if country)
+    from_source = sum(1 for _, _, country, _ in ip_ports if country)
     logger.info(f"数据源为 {from_source} 个节点提供了国家信息")
 
-    ips_to_query = [ip for ip, _, country in ip_ports if not country]
+    # 仅对来自 URL 且无国家信息的节点进行 GeoIP 查询
+    ips_to_query = [ip for ip, _, country, src in ip_ports if not country and src == "URL"]
     if ips_to_query:
-        logger.info(f"批量查询 {len(ips_to_query)} 个 IP 的国家信息")
+        logger.info(f"批量查询 {len(ips_to_query)} 个 URL 节点的 IP 国家信息")
         countries = get_countries_from_ips(ips_to_query, country_cache)
         ip_country_map = dict(zip(ips_to_query, countries))
     else:
         ip_country_map = {}
 
     supplemented = 0
-    for ip, port, country in ip_ports:
+    for ip, port, country, source in ip_ports:
         final_country = country
-        source = "数据源" if country else "待查询"
+        source_type = "数据源" if country else "待查询"
         
-        if not country:
+        if not country and source == "URL":
             final_country = ip_country_map.get(ip, '')
             if final_country:
                 supplemented += 1
-                source = "GeoIP 数据库"
+                source_type = "GeoIP 数据库"
         
+        # input.csv 节点必须有国家信息，否则跳过
+        if source == "input.csv" and not final_country:
+            logger.warning(f"input.csv 节点 {ip}:{port} 缺少国家信息，跳过")
+            filtered_counts['MISSING'] += 1
+            continue
+
         if not DESIRED_COUNTRIES:
             filtered_ip_ports.add((ip, port))
             if final_country:
@@ -914,7 +922,7 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     total_retained = len(filtered_ip_ports)
     total_filtered = sum(filtered_counts.values())
     logger.info(f"过滤结果: 保留 {total_retained} 个节点，过滤掉 {total_filtered} 个节点")
-    logger.info(f"通过 GeoIP 数据库补充国家信息: {supplemented} 个节点")
+    logger.info(f"通过 GeoIP 数据库补充国家信息: {supplemented} 个 URL 节点")
     logger.info(f"保留的国家分布: {dict(country_counts)}")
     logger.info(f"过滤掉的国家分布: {dict(filtered_counts)}")
 
@@ -1012,6 +1020,17 @@ def filter_speed_and_deduplicate(csv_file: str):
         return
     seen = set()
     final_rows = []
+    # 从 input.csv 加载国家信息
+    input_ip_countries = {}
+    if os.path.exists(INPUT_FILE):
+        with open(INPUT_FILE, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            country_col = header.index("Country") if header and "Country" in header else -1
+            for row in reader:
+                if len(row) >= 2 and row[country_col]:
+                    input_ip_countries[(row[0], row[1])] = standardize_country(row[country_col])
+    country_cache = load_country_cache()
     try:
         with open(csv_file, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
@@ -1019,10 +1038,24 @@ def filter_speed_and_deduplicate(csv_file: str):
             if not header:
                 logger.error(f"{csv_file} 没有有效的表头")
                 return
+            ip_col = header.index("IP") if "IP" in header else 0
+            port_col = header.index("端口") if "端口" in header else 1
+            country_col = header.index("国际代码") if "国际代码" in header else -1
             for row in reader:
-                if len(row) < 2 or not row[0].strip():
+                if len(row) < 2 or not row[ip_col].strip():
                     continue
-                key = (row[0], row[1])
+                ip, port = row[ip_col], row[port_col]
+                # 优先使用 input.csv 的国家信息
+                country = input_ip_countries.get((ip, port), '')
+                if not country and country_col != -1 and row[country_col]:
+                    country = standardize_country(row[country_col])
+                if not country:
+                    # 对于 URL 节点，查询 GeoIP
+                    country = get_country_from_ip(ip, country_cache)
+                if not country or country not in DESIRED_COUNTRIES:
+                    logger.debug(f"过滤掉不符合 DESIRED_COUNTRIES 的节点: {ip}:{port} ({country})")
+                    continue
+                key = (ip, port)
                 if key not in seen:
                     seen.add(key)
                     final_rows.append(row)
@@ -1042,6 +1075,7 @@ def filter_speed_and_deduplicate(csv_file: str):
         writer.writerow(header)
         writer.writerows(final_rows)
     logger.info(f"{csv_file} 处理完成，{len(final_rows)} 个数据节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    save_country_cache(country_cache)
     return len(final_rows)
 
 def generate_ips_file(csv_file: str):
@@ -1051,19 +1085,45 @@ def generate_ips_file(csv_file: str):
         return
     country_cache = load_country_cache()
     final_nodes = []
+    # 从 input.csv 加载国家信息
+    input_ip_countries = {}
+    if os.path.exists(INPUT_FILE):
+        with open(INPUT_FILE, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            country_col = header.index("Country") if header and "Country" in header else -1
+            for row in reader:
+                if len(row) >= 2 and row[country_col]:
+                    input_ip_countries[(row[0], row[1])] = standardize_country(row[country_col])
     try:
         with open(csv_file, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            next(reader)
+            header = next(reader, None)
+            if not header:
+                logger.error(f"{csv_file} 没有有效的表头")
+                return
+            ip_col = header.index("IP") if "IP" in header else 0
+            port_col = header.index("端口") if "端口" in header else 1
+            country_col = header.index("国际代码") if "国际代码" in header else -1
             for row in reader:
                 if len(row) < 2:
                     continue
-                ip, port = row[0], row[1]
+                ip, port = row[ip_col], row[port_col]
                 if not is_valid_ip(ip) or not is_valid_port(port):
                     continue
-                country = country_cache.get(ip, '')
+                # 优先使用 input.csv 的国家信息
+                country = input_ip_countries.get((ip, port), '')
+                if not country and country_col != -1 and row[country_col]:
+                    country = standardize_country(row[country_col])
                 if not country:
+                    # 对于 URL 节点，查询 GeoIP
                     country = get_country_from_ip(ip, country_cache)
+                if not country:
+                    logger.warning(f"节点 {ip}:{port} 无有效国家信息，跳过")
+                    continue
+                if country not in DESIRED_COUNTRIES:
+                    logger.debug(f"过滤掉不符合 DESIRED_COUNTRIES 的节点: {ip}:{port} ({country})")
+                    continue
                 final_nodes.append((ip, int(port), country))
     except Exception as e:
         logger.error(f"无法读取 {csv_file}: {e}")
