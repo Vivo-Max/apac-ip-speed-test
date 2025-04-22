@@ -1,115 +1,31 @@
-name: Proxy IP Check
-
-permissions:
-  contents: write  # 授予仓库内容的写权限，允许 git push
-
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'input.csv'
-      - 'iptest'
-      - 'iptest.sh'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'input.csv'
-      - 'iptest'
-      - 'iptest.sh'
-  schedule:
-    - cron: '0 0 * * 1'  # 每周一 UTC 时间 00:00 运行
-  workflow_dispatch:
-
-jobs:
-  proxy-ip-check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
-
-      - name: Run IP test using iptest.sh
-        timeout-minutes: 15  # 测速可能耗时，设置超时
-        run: |
-          echo "Start time: $(date)"
-          echo "开始时间: $(date)"
-          # 准备并运行 iptest.sh
-          if [ -f iptest.sh ]; then
-            echo "Found existing iptest.sh:"
-            cat iptest.sh
-          else
-            echo "No iptest.sh, creating new one"
-            printf '#!/bin/sh\n' > iptest.sh
-            printf './iptest || {\n' >> iptest.sh
-            printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
-            printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
-            printf '  while IFS="," read -r ip port; do\n' >> iptest.sh
-            printf '    echo "$ip,$port,10ms,100Mbps" >> ip.csv\n' >> iptest.sh
-            printf '  done < input.csv\n' >> iptest.sh
-            printf '}\n' >> iptest.sh
-          fi
-          chmod +x iptest.sh
-          if [ -f iptest ]; then
-            chmod +x iptest
-            echo "iptest binary found"
-          else
-            echo "iptest binary not found, using fallback in iptest.sh"
-          fi
-          ./iptest.sh
-          echo "End time: $(date)"
-          echo "结束时间: $(date)"
-          cat ip.csv || echo "ip.csv not generated"
-
-      - name: Process IP test results
-        env:
-          REAL_TIME_LOG: "true"  # 启用逐行打印，便于调试
-        run: |
-          echo "Start time: $(date)"
-          echo "开始时间: $(date)"
-          python3 ip-filter-speedtest-api.py || echo "Python script failed"
-          echo "End time: $(date)"
-          echo "结束时间: $(date)"
-
-      - name: Verify generated files
-        run: |
-          ls -l ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
-          cat speedtest.log || echo "speedtest.log not generated"
-
-      - name: Commit and push generated files
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git add ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
-          git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
-          git push || echo "No changes to push"
-
-      - name: Upload results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: proxy-ip-results
-          path: |
-            ip.txt
-            ip.csv
-            ips.txt
-            speedtest.log
-            country_cache.json
+- name: Run IP test using iptest.sh
+  timeout-minutes: 30  # 增加超时时间到 30 分钟
+  run: |
+    echo "Start time: $(date)"
+    echo "开始时间: $(date)"
+    # 准备并运行 iptest.sh
+    if [ -f iptest.sh ]; then
+      echo "Found existing iptest.sh:"
+      cat iptest.sh
+    else
+      echo "No iptest.sh, creating new one"
+      printf '#!/bin/sh\n' > iptest.sh
+      printf './iptest || {\n' >> iptest.sh
+      printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
+      printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
+      printf '  while IFS="," read -r ip port; do\n' >> iptest.sh
+      printf '    echo "$ip,$port,10ms,100Mbps" >> ip.csv\n' >> iptest.sh
+      printf '  done < input.csv\n' >> iptest.sh
+      printf '}\n' >> iptest.sh
+    fi
+    chmod +x iptest.sh
+    if [ -f iptest ]; then
+      chmod +x iptest
+      echo "iptest binary found"
+    else
+      echo "iptest binary not found, using fallback in iptest.sh"
+    fi
+    ./iptest.sh
+    echo "End time: $(date)"
+    echo "结束时间: $(date)"
+    cat ip.csv || echo "ip.csv not generated"
