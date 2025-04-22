@@ -47,39 +47,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
 
-      - name: Run IP test using iptest.sh
-        timeout-minutes: 30  # 测速可能耗时，设置超时
+      - name: Prepare iptest.sh
         run: |
-          echo "Start time: $(date)"
-          echo "开始时间: $(date)"
-          # 准备并运行 iptest.sh
+          echo "Checking for iptest.sh..."
           if [ -f iptest.sh ]; then
             echo "Found existing iptest.sh:"
             cat iptest.sh
           else
-            echo "No iptest.sh, creating new one"
+            echo "No iptest.sh, creating a minimal version"
             printf '#!/bin/sh\n' > iptest.sh
-            printf './iptest || {\n' >> iptest.sh
-            printf '  echo "iptest binary failed or missing, generating fallback ip.csv"\n' >> iptest.sh
-            printf '  echo "ip,port,latency,speed" > ip.csv\n' >> iptest.sh
-            printf '  while IFS="," read -r ip port; do\n' >> iptest.sh
-            printf '    echo "$ip,$port,10ms,100Mbps" >> ip.csv\n' >> iptest.sh
-            printf '  done < input.csv\n' >> iptest.sh
-            printf '}\n' >> iptest.sh
+            printf 'echo "iptest.sh placeholder - speed test handled by Python script"\n' >> iptest.sh
           fi
           chmod +x iptest.sh
           if [ -f iptest ]; then
             chmod +x iptest
             echo "iptest binary found"
           else
-            echo "iptest binary not found, using fallback in iptest.sh"
+            echo "iptest binary not found"
           fi
-          ./iptest.sh
-          echo "End time: $(date)"
-          echo "结束时间: $(date)"
-          cat ip.csv || echo "ip.csv not generated"
 
-      - name: Process IP test results
+      - name: Run IP test and process results
         env:
           REAL_TIME_LOG: "true"  # 启用逐行打印，便于调试
         run: |
