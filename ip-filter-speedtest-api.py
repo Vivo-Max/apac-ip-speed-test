@@ -34,7 +34,7 @@ try:
     with open(LOG_PATH, 'a', encoding='utf-8') as f:
         pass
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.DEBUG,  # 仍然设置底层级别为 DEBUG 以支持其他日志，但我们不会使用 logger.debug
         format='%(asctime)s [%(levelname)s] %(message)s',
         handlers=[
             logging.FileHandler(LOG_PATH, encoding="utf-8", mode="w"),
@@ -43,7 +43,7 @@ try:
         force=True
     )
     logger = logging.getLogger(__name__)
-    logger.debug(f"日志初始化完成，日志文件: {LOG_PATH}")
+    logger.info(f"日志初始化完成，日志文件: {LOG_PATH}")
 except Exception as e:
     print(f"无法创建日志文件 {LOG_PATH}: {e}")
     sys.exit(1)
@@ -74,13 +74,14 @@ CONFIG_FILE = ".gitconfig.json"
 SSH_KEY_PATH = os.path.expanduser("~/.ssh/id_ed25519")
 VENV_DIR = ".venv"
 
+# 国家代码和标签
 COUNTRY_LABELS = {
     'JP': ('🇯🇵', '日本'), 'KR': ('🇰🇷', '韩国'), 'SG': ('🇸🇬', '新加坡'),
     'TW': ('🇹🇼', '台湾'), 'HK': ('🇭🇰', '香港'), 'MY': ('🇲🇾', '马来西亚'),
     'TH': ('🇹🇭', '泰国'), 'ID': ('🇮🇩', '印度尼西亚'), 'PH': ('🇵🇭', '菲律宾'),
     'VN': ('🇻🇳', '越南'), 'IN': ('🇮🇳', '印度'), 'MO': ('🇲🇴', '澳门'),
     'KH': ('🇰🇭', '柬埔寨'), 'LA': ('🇱🇦', '老挝'), 'MM': ('🇲🇲', '缅甸'),
-    'MN': ('🇲🇳', '蒙古'), 'KP': ('🇰🇵', '朝鲜'), 'US': ('🇺🇸', '美国'),
+    'MN': ('🇲🇳', '蒙古'), 'KP': ('🇵🇵', '朝鲜'), 'US': ('🇺🇸', '美国'),
     'GB': ('🇬🇧', '英国'), 'DE': ('🇩🇪', '德国'), 'FR': ('🇫🇷', '法国'),
     'IT': ('🇮🇹', '意大利'), 'ES': ('🇪🇸', '西班牙'), 'NL': ('🇳🇱', '荷兰'),
     'FI': ('🇫🇮', '芬兰'), 'AU': ('🇦🇺', '澳大利亚'), 'CA': ('🇨🇦', '加拿大'),
@@ -108,8 +109,12 @@ COUNTRY_LABELS = {
     'KW': ('🇰🇼', '科威特'), 'BH': ('🇧🇭', '巴林'), 'OM': ('🇴🇲', '阿曼'),
     'JO': ('🇯🇴', '约旦'), 'LB': ('🇱🇧', '黎巴嫩'), 'SY': ('🇸🇾', '叙利亚'),
     'IQ': ('🇮🇶', '伊拉克'), 'YE': ('🇾🇪', '也门'),
-    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛')
+    'EE': ('🇪🇪', '爱沙尼亚'), 'LV': ('🇱🇻', '拉脱维亚'), 'LT': ('🇱🇹', '立陶宛'),
+    'MD': ('🇲🇩', '摩尔多瓦'), 'LU': ('🇱🇺', '卢森堡'), 'SC': ('🇸🇨', '塞舌尔'),
+    'CY': ('🇨🇾', '塞浦路斯'), 'GI': ('🇬🇮', '直布罗陀'),
 }
+
+# 国家别名
 COUNTRY_ALIASES = {
     'SOUTH KOREA': 'KR', 'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'KOREA, REPUBLIC OF': 'KR',
     'HONG KONG': 'HK', 'HONGKONG': 'HK', 'HK SAR': 'HK',
@@ -130,7 +135,78 @@ COUNTRY_ALIASES = {
     'VIET NAM': 'VN', 'VIETNAM': 'VN', '越南': 'VN',
     'THAILAND': 'TH', 'THA': 'TH', '泰国': 'TH',
     'BURMA': 'MM', 'MYANMAR': 'MM', '缅甸': 'MM',
-    'NORTH KOREA': 'KP', 'KOREA, DEMOCRATIC PEOPLE\'S REPUBLIC OF': 'KP', '朝鲜': 'KP'
+    'NORTH KOREA': 'KP', 'KOREA, DEMOCRATIC PEOPLE\'S REPUBLIC OF': 'KP', '朝鲜': 'KP',
+    'MOLDOVA': 'MD', 'REPUBLIC OF MOLDOVA': 'MD', 'MOLDOVA, REPUBLIC OF': 'MD', '摩尔多瓦': 'MD',
+    'LUXEMBOURG': 'LU', 'GRAND DUCHY OF LUXEMBOURG': 'LU', '卢森堡': 'LU',
+    'SEYCHELLES': 'SC', 'REPUBLIC OF SEYCHELLES': 'SC', '塞舌尔': 'SC',
+    'CYPRUS': 'CY', 'REPUBLIC OF CYPRUS': 'CY', '塞浦路斯': 'CY',
+    'GIBRALTAR': 'GI', '直布罗陀': 'GI',
+}
+
+# 城市到国家代码映射表
+CITY_TO_COUNTRY = {
+    'TOKYO': 'JP',
+    'HONG KONG': 'HK',
+    'HONGKONG': 'HK',
+    'LOS ANGELES': 'US',
+    'MANILA': 'PH',
+    'SINGAPORE': 'SG',
+    'SAN JOSE': 'US',
+    'YEREVAN': 'AM',
+    'FRANKFURT': 'DE',
+    'AMSTERDAM': 'NL',
+    'MOSCOW': 'RU',
+    'SEOUL': 'KR',
+    'TAIPEI': 'TW',
+    'BANGKOK': 'TH',
+    'JAKARTA': 'ID',
+    'HO CHI MINH CITY': 'VN',
+    'HANOI': 'VN',
+    'NEW DELHI': 'IN',
+    'YANGON': 'MM',
+    'MACAU': 'MO',
+    'PHNOM PENH': 'KH',
+    'VIENTIANE': 'LA',
+    'ULAANBAATAR': 'MN',
+    'PYONGYANG': 'KP',
+    'CHISINAU': 'MD',  # 摩尔多瓦 - 基希讷乌
+    'KISHINEV': 'MD',  # 基希讷乌的英文变体
+    'LUXEMBOURG': 'LU',  # 卢森堡 - 卢森堡市
+    'VICTORIA': 'SC',  # 塞舌尔 - 维多利亚
+    'NICOSIA': 'CY',  # 塞浦路斯 - 尼科西亚
+    'GIBRALTAR': 'GI',  # 直布罗陀 - 直布罗陀
+}
+
+# IATA 代码到国家代码映射表
+IATA_TO_COUNTRY = {
+    'NRT': 'JP',
+    'HKG': 'HK',
+    'LAX': 'US',
+    'MNL': 'PH',
+    'SIN': 'SG',
+    'SJC': 'US',
+    'EVN': 'AM',
+    'FRA': 'DE',
+    'AMS': 'NL',
+    'DME': 'RU',
+    'ICN': 'KR',
+    'TPE': 'TW',
+    'BKK': 'TH',
+    'CGK': 'ID',
+    'SGN': 'VN',
+    'HAN': 'VN',
+    'DEL': 'IN',
+    'RGN': 'MM',
+    'MFM': 'MO',
+    'PNH': 'KH',
+    'VTE': 'LA',
+    'ULN': 'MN',
+    'KIV': 'MD',  # 摩尔多瓦 - 基希讷乌国际机场
+    'LUX': 'LU',  # 卢森堡 - 卢森堡机场
+    'SEZ': 'SC',  # 塞舌尔 - 塞舌尔国际机场
+    'LCA': 'CY',  # 塞浦路斯 - 拉纳卡国际机场
+    'PFO': 'CY',  # 塞浦路斯 - 帕福斯国际机场
+    'GIB': 'GI',  # 直布罗陀 - 直布罗陀机场
 }
 
 def find_speedtest_script() -> str:
@@ -203,13 +279,11 @@ def setup_and_activate_venv():
     
     script_path = os.path.abspath(__file__)
     dynamic_imports = get_non_stdlib_imports(script_path)
-    logger.debug(f"动态检测到的非标准库模块: {dynamic_imports}")
     
     REQUIRED_PACKAGES = list(STATIC_REQUIRED_PACKAGES)
     for module in dynamic_imports:
         if module in MODULE_TO_PACKAGE and MODULE_TO_PACKAGE[module] not in REQUIRED_PACKAGES:
             REQUIRED_PACKAGES.append(MODULE_TO_PACKAGE[module])
-    logger.debug(f"最终依赖列表: {REQUIRED_PACKAGES}")
     
     system = sys.platform.lower()
     if system.startswith('win'):
@@ -222,35 +296,32 @@ def setup_and_activate_venv():
         logger.error(f"不支持的平台: {system}")
         sys.exit(1)
     
-    logger.debug(f"检测到的平台: {system}")
-    logger.debug(f"Python 可执行文件: {sys.executable}, 版本: {sys.version}")
+    logger.info(f"检测到的平台: {system}")
+    logger.info(f"Python 可执行文件: {sys.executable}, 版本: {sys.version}")
     
     venv_path = Path('.venv')
-    logger.debug(f"虚拟环境路径: {venv_path}")
     
     recreate_venv = False
     if venv_path.exists():
-        logger.debug(f"检测到现有虚拟环境: {venv_path}")
+        logger.info(f"检测到现有虚拟环境: {venv_path}")
         venv_python = str(venv_path / ('Scripts' if system == 'windows' else 'bin') / 'python')
         try:
             result = subprocess.run([venv_python, '--version'], check=True, capture_output=True, text=True)
-            logger.debug(f"虚拟环境 Python 版本: {result.stdout.strip()}")
+            logger.info(f"虚拟环境 Python 版本: {result.stdout.strip()}")
         except subprocess.CalledProcessError as e:
             logger.warning(f"虚拟环境 Python 不可用: {e}, 将重新创建")
             recreate_venv = True
     else:
-        logger.debug("未找到虚拟环境，将创建")
+        logger.info("未找到虚拟环境，将创建")
         recreate_venv = True
     
     pip_venv = str(venv_path / ('Scripts' if system == 'windows' else 'bin') / 'pip')
-    logger.debug("开始检查虚拟环境依赖")
+    logger.info("开始检查虚拟环境依赖")
     installed_packages = {}
     if not recreate_venv:
         try:
             result = subprocess.run([pip_venv, "list", "--format=json"], check=True, capture_output=True, text=True)
-            logger.debug(f"pip list 输出: {result.stdout}")
             installed_packages = {pkg["name"].lower(): pkg["version"] for pkg in json.loads(result.stdout)}
-            logger.debug(f"已安装的包: {installed_packages}")
         except subprocess.CalledProcessError as e:
             logger.error(f"pip list 失败: {e}, 输出: {e.output}")
             recreate_venv = True
@@ -292,69 +363,62 @@ def setup_and_activate_venv():
     
     if recreate_venv:
         if venv_path.exists():
-            logger.debug("删除现有虚拟环境")
+            logger.info("删除现有虚拟环境")
             shutil.rmtree(venv_path, ignore_errors=True)
-            logger.debug("成功删除现有虚拟环境")
+            logger.info("成功删除现有虚拟环境")
         
-        logger.debug(f"创建虚拟环境: {venv_path}")
+        logger.info(f"创建虚拟环境: {venv_path}")
         subprocess.run([sys.executable, '-m', 'venv', str(venv_path)], check=True)
-        logger.debug("虚拟环境创建成功")
+        logger.info("虚拟环境创建成功")
         
         venv_python = str(venv_path / ('Scripts' if system == 'windows' else 'bin') / 'python')
         pip_venv = str(venv_path / ('Scripts' if system == 'windows' else 'bin') / 'pip')
-        logger.debug(f"虚拟环境 Python: {venv_python}, pip: {pip_venv}")
         
         try:
             result = subprocess.run([pip_venv, 'install', '--upgrade', 'pip'], check=True, capture_output=True, text=True)
-            logger.debug(f"升级 pip 成功: {result.stdout}")
+            logger.info(f"升级 pip 成功: {result.stdout}")
         except subprocess.CalledProcessError as e:
             logger.warning(f"升级 pip 失败: {e}, 输出: {e.output}")
         
         for pkg in REQUIRED_PACKAGES:
-            logger.debug(f"安装依赖: {pkg}")
+            logger.info(f"安装依赖: {pkg}")
             try:
                 result = subprocess.run([pip_venv, 'install', pkg], check=True, capture_output=True, text=True)
-                logger.debug(f"成功安装依赖: {pkg}, 输出: {result.stdout}")
+                logger.info(f"成功安装依赖: {pkg}, 输出: {result.stdout}")
             except subprocess.CalledProcessError as e:
                 logger.error(f"安装依赖 {pkg} 失败: {e}, 输出: {e.output}")
                 sys.exit(1)
     
     venv_site = str(venv_path / ('Lib' if system == 'windows' else 'lib') / 
                     f"python{sys.version_info.major}.{sys.version_info.minor}" / 'site-packages')
-    logger.debug(f"虚拟环境 site-packages: {venv_site}")
     if venv_site not in sys.path:
         sys.path.insert(0, venv_site)
-    logger.debug("虚拟环境已激活")
+    logger.info("虚拟环境已激活")
     
     for module in list(sys.modules.keys()):
         if module.startswith('geoip2') or module.startswith('maxminddb'):
             del sys.modules[module]
-    logger.debug("已清理 geoip2 和 maxminddb 模块缓存")
     
     try:
         import geoip2
-        logger.debug(f"geoip2 模块已导入，版本: {geoip2.__version__}")
     except ImportError as e:
         logger.error(f"无法导入 geoip2: {e}", exc_info=True)
         sys.exit(1)
     
     try:
         import geoip2.database
-        logger.debug("geoip2.database 模块已成功导入")
     except ImportError as e:
         logger.error(f"无法导入 geoip2.database: {e}", exc_info=True)
         sys.exit(1)
     
     try:
         import maxminddb
-        logger.debug(f"maxminddb 模块已导入，版本: {maxminddb.__version__}")
     except ImportError as e:
         logger.error(f"无法导入 maxminddb: {e}", exc_info=True)
         sys.exit(1)
     
     try:
         import packaging
-        logger.debug(f"packaging 模块已导入，版本: {packaging.__version__}")
     except ImportError as e:
         logger.error(f"无法导入 packaging: {e}", exc_info=True)
         sys.exit(1)
@@ -529,7 +593,6 @@ def init_geoip_reader(offline: bool = False, update_geoip: bool = False):
     # 加载数据库
     try:
         import geoip2.database
-        logger.debug("geoip2.database 模块已导入")
         with geoip2.database.Reader(GEOIP_DB_PATH) as reader:
             logger.info("GeoIP 数据库验证成功")
         geoip_reader = geoip2.database.Reader(GEOIP_DB_PATH)
@@ -602,19 +665,25 @@ def is_temp_file_valid(temp_file: str) -> bool:
     return True
 
 def detect_delimiter(lines: List[str]) -> str:
-    comma_count = sum(1 for line in lines[:5] if ',' in line and line.strip())
-    semicolon_count = sum(1 for line in lines[:5] if ';' in line and line.strip())
-    tab_count = sum(1 for line in lines[:5] if '\t' in line and line.strip())
-    space_count = sum(1 for line in lines[:5] if ' ' in line and line.strip())
-    if comma_count > max(semicolon_count, tab_count, space_count) and comma_count > 0:
-        return ','
-    elif semicolon_count > max(comma_count, tab_count, space_count) and semicolon_count > 0:
-        return ';'
-    elif tab_count > max(comma_count, semicolon_count, space_count) and tab_count > 0:
-        return '\t'
-    elif space_count > max(comma_count, semicolon_count, tab_count) and space_count > 0:
-        return ' '
-    return None
+    """
+    检测 CSV 文件的分隔符
+    """
+    sample_lines = lines[:5]
+    delimiters = [',', ';', '\t', ' ', '|', '-']
+    counts = {d: 0 for d in delimiters}
+    for line in sample_lines:
+        if not line.strip() or line.startswith('#'):
+            continue
+        for d in delimiters:
+            if d in line:
+                counts[d] += line.count(d)
+    max_count = max(counts.values())
+    if max_count > 0:
+        delimiter = max(counts, key=counts.get)
+        logger.info(f"检测到分隔符: '{delimiter}'")
+        return delimiter
+    logger.warning("无法检测分隔符，假定为逗号")
+    return ','
 
 def is_valid_ip(ip: str) -> bool:
     ipv4_pattern = re.compile(r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
@@ -638,51 +707,83 @@ def is_country_like(value: str) -> bool:
         return True
     return False
 
-def standardize_country(country: str) -> str:
-    if not country:
+def standardize_country(value: str) -> str:
+    """
+    标准化国家名称、城市名称或 IATA 代码为 ISO 3166-1 alpha-2 代码
+    """
+    if not value:
         return ''
-    country_clean = re.sub(r'[^a-zA-Z\s]', '', country).strip().upper()
-    if country_clean in COUNTRY_LABELS:
-        return country_clean
-    if country_clean in COUNTRY_ALIASES:
-        return COUNTRY_ALIASES[country_clean]
-    country_clean = country_clean.replace(' ', '')
+    value_clean = re.sub(r'[^a-zA-Z\s]', '', value).strip().upper()
+    
+    # 检查是否为国家代码
+    if value_clean in COUNTRY_LABELS:
+        return value_clean
+    
+    # 检查是否为国家别名
+    if value_clean in COUNTRY_ALIASES:
+        return COUNTRY_ALIASES[value_clean]
+    
+    # 检查是否为城市名称
+    if value_clean in CITY_TO_COUNTRY:
+        return CITY_TO_COUNTRY[value_clean]
+    
+    # 检查是否为 IATA 代码
+    if value_clean in IATA_TO_COUNTRY:
+        return IATA_TO_COUNTRY[value_clean]
+    
+    # 尝试无空格匹配
+    value_no_space = value_clean.replace(' ', '')
     for alias, code in COUNTRY_ALIASES.items():
         alias_clean = alias.replace(' ', '')
-        if country_clean == alias_clean:
+        if value_no_space == alias_clean:
             return code
+    for city, code in CITY_TO_COUNTRY.items():
+        city_clean = city.replace(' ', '')
+        if value_no_space == city_clean:
+            return code
+    
     return ''
 
 def find_country_column(lines: List[str], delimiter: str) -> Tuple[int, int, int]:
+    """
+    尝试识别包含国家代码、城市名称或 IATA 代码的列
+    """
     country_col = -1
-    ip_col = 0
-    port_col = 1
-    sample_lines = [line for line in lines[:5] if line.strip() and not line.startswith('#')]
+    ip_col, port_col = 0, 1
+    sample_lines = [line for line in lines[:20] if line.strip() and not line.startswith('#')]
     if not sample_lines:
         return ip_col, port_col, country_col
 
+    # 逐行逐列检查，统计每列中可能的国家代码、城市或 IATA 代码的匹配次数
     col_matches = defaultdict(int)
     total_rows = len(sample_lines)
-    max_cols = max(len(line.split(delimiter)) for line in sample_lines)
-
     for line in sample_lines:
         fields = line.split(delimiter)
         for col, field in enumerate(fields):
             field = field.strip()
-            if is_country_like(field):
+            standardized = standardize_country(field)
+            if standardized:
                 col_matches[col] += 1
 
     if col_matches:
+        # 选择匹配率最高的列
+        for col, count in col_matches.items():
+            logger.info(f"列 {col + 1}: 匹配 {count} 行 (匹配率: {count / total_rows:.2%})")
         country_col = max(col_matches, key=col_matches.get)
         match_rate = col_matches[country_col] / total_rows
-        if match_rate < 0.5:
-            country_col = -1
+        if match_rate >= 0.3:
+            logger.info(f"选择国家列: 第 {country_col + 1} 列 (匹配率: {match_rate:.2%})")
         else:
-            logger.info(f"国家列: 第 {country_col + 1} 列 (匹配率: {match_rate:.2%})")
+            country_col = -1
+    else:
+        logger.info("未找到任何匹配国家代码、城市或 IATA 代码的列")
 
     return ip_col, port_col, country_col
 
 def fetch_and_save_to_temp_file(url: str) -> str:
+    """
+    从 URL 下载数据并保存到临时文件，验证文件格式
+    """
     logger.info(f"下载 URL: {url} 到 {TEMP_FILE}")
     try:
         session = requests.Session()
@@ -692,14 +793,44 @@ def fetch_and_save_to_temp_file(url: str) -> str:
         response.raise_for_status()
         total_size = int(response.headers.get('content-length', 0))
         downloaded = 0
+        temp_content = []
         with open(TEMP_FILE, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
+                    temp_content.append(chunk)
                     if total_size > 0:
                         progress = (downloaded / total_size) * 100
                         logger.info(f"下载进度: {progress:.2f}%")
+        
+        # 验证文件格式
+        try:
+            with open(TEMP_FILE, "rb") as f:
+                raw_data = f.read()
+            encoding = detect(raw_data).get("encoding", "utf-8")
+            content = raw_data.decode(encoding)
+            lines = content.strip().splitlines()
+            if not lines:
+                logger.error(f"下载的文件 {TEMP_FILE} 为空")
+                return ''
+            logger.info(f"下载文件编码: {encoding}")
+            logger.info(f"下载文件前 5 行: {lines[:5]}")
+            # 检查是否为有效 CSV
+            delimiter = detect_delimiter(lines)
+            if not delimiter:
+                logger.error(f"下载的文件 {TEMP_FILE} 无法检测分隔符")
+                return ''
+            header = lines[0].strip().split(delimiter)
+            if len(header) < 2 or 'ip' not in header[0].lower():
+                logger.warning(f"下载的文件 {TEMP_FILE} 表头可能无效: {header}")
+            if len(lines) < 2:
+                logger.error(f"下载的文件 {TEMP_FILE} 缺少数据行")
+                return ''
+        except Exception as e:
+            logger.error(f"验证下载文件格式失败: {e}")
+            return ''
+        
         logger.info(f"已下载到 {TEMP_FILE}")
         return TEMP_FILE
     except Exception as e:
@@ -707,6 +838,9 @@ def fetch_and_save_to_temp_file(url: str) -> str:
         return ''
 
 def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
+    """
+    从文件中提取 IP、端口和国家信息
+    """
     if not os.path.exists(file_path):
         logger.error(f"文件 {file_path} 不存在")
         return []
@@ -714,6 +848,7 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
     with open(file_path, "rb") as f:
         raw_data = f.read()
     encoding = detect(raw_data).get("encoding", "utf-8")
+    logger.info(f"文件 {file_path} 编码: {encoding}")
     try:
         content = raw_data.decode(encoding)
     except UnicodeDecodeError as e:
@@ -724,6 +859,9 @@ def extract_ip_ports_from_file(file_path: str) -> List[Tuple[str, int, str]]:
     return ip_ports
 
 def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
+    """
+    从内容中提取 IP、端口和国家信息
+    """
     server_port_pairs = []
     invalid_lines = []
     content = content.replace('\r\n', '\n').replace('\r', '\n')
@@ -737,8 +875,8 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
     try:
         data = json.loads(content)
         for item in data:
-            ip = item.get('ip', '')
-            port = item.get('port', '')
+            ip = item.get('ip', '') or item.get('IP Address', '') or item.get('ip_address', '')
+            port = item.get('port', '') or item.get('Port', '')
             country = standardize_country(
                 item.get('country', '') or
                 item.get('countryCode', '') or
@@ -747,7 +885,12 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                 item.get('nation', '') or
                 item.get('region', '') or
                 item.get('geo', '') or
-                item.get('area', '')
+                item.get('area', '') or
+                item.get('dc city', '') or
+                item.get('dc_city', '') or
+                item.get('city', '') or
+                item.get('dc location', '') or
+                item.get('dc_location', '')
             )
             if is_valid_ip(ip) and is_valid_port(str(port)):
                 server_port_pairs.append((ip, int(port), country))
@@ -768,17 +911,22 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
         logger.info(f"检测到表头: {header}")
         for idx, col in enumerate(header):
             col_lower = col.strip().lower()
-            if col_lower in ['ip', 'address', 'ip_address', 'ip地址']:
+            if col_lower in ['ip', 'address', 'ip_address', 'ip地址', 'ip address']:
                 ip_col = idx
             elif col_lower in ['port', '端口', 'port_number', '端口号']:
                 port_col = idx
-            elif col_lower in ['country', '国家', 'country_code', 'countrycode', '国际代码', 'nation', 'location', 'region', 'geo', 'area']:
+            elif col_lower in ['country', '国家', 'country_code', 'countrycode', '国际代码', 'nation', 'location', 'region', 'geo', 'area', 'Country', 'cc', 'iso_code', 'country_name', 'dc city', 'dc_city', 'city', 'dc location', 'dc_location']:
                 country_col = idx
         if country_col != -1:
             logger.info(f"检测到国家列: 第 {country_col + 1} 列 (字段名: {header[country_col]})")
             lines_to_process = lines[1:]
         else:
-            logger.info("表头中不包含国家列，将逐行逐列搜索国家信息")
+            logger.info("表头中不包含国家相关列，尝试逐行逐列搜索")
+            ip_col, port_col, country_col = find_country_column(lines, delimiter)
+            if country_col >= 0:
+                logger.info(f"通过逐行搜索确定国家列: 第 {country_col + 1} 列")
+            else:
+                logger.info(f"无法确定国家列，设为 -1")
 
     ip_port_pattern = re.compile(
         r'(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|\[(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}\]|(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}))[ :,\t](\d{1,5})'
@@ -803,7 +951,6 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                         potential_country = standardize_country(field)
                         if potential_country:
                             country = potential_country
-                            logger.info(f"第 {i} 行: 从第 {col + 1} 列提取国家: {field} -> {country}")
                             break
             if is_valid_port(port):
                 server_port_pairs.append((server, int(port), country))
@@ -812,7 +959,7 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
             continue
         if delimiter:
             fields = line.split(delimiter)
-            if len(fields) < max(ip_col, port_col) + 1:
+            if len(fields) < max(ip_col, port_col, country_col) + 1:
                 invalid_lines.append(f"第 {i} 行: {line} (字段太少)")
                 continue
             server = fields[ip_col].strip('[]')
@@ -826,7 +973,6 @@ def extract_ip_ports_from_content(content: str) -> List[Tuple[str, int, str]]:
                     potential_country = standardize_country(field)
                     if potential_country:
                         country = potential_country
-                        logger.info(f"第 {i} 行: 从第 {col + 1} 列提取国家: {field} -> {country}")
                         break
             if is_valid_ip(server) and is_valid_port(port_str):
                 server_port_pairs.append((server, int(port_str), country))
@@ -867,7 +1013,10 @@ def get_countries_from_ips(ips: List[str], cache: Dict[str, str]) -> List[str]:
                 cache[ip] = ''
     return [cache[ip] for ip in ips]
 
-def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
+def write_ip_list(ip_ports: List[Tuple[str, int, str]], is_github_actions: bool) -> str:
+    """
+    将 IP 列表写入文件，并补充缺失的国家信息
+    """
     if not ip_ports:
         logger.error(f"没有有效的节点来生成 {IP_LIST_FILE}")
         return None
@@ -883,14 +1032,15 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
     logger.info(f"数据源为 {from_source} 个节点提供了国家信息")
 
     ips_to_query = [ip for ip, _, country in ip_ports if not country]
+    supplemented = 0
     if ips_to_query:
         logger.info(f"批量查询 {len(ips_to_query)} 个 IP 的国家信息")
         countries = get_countries_from_ips(ips_to_query, country_cache)
         ip_country_map = dict(zip(ips_to_query, countries))
+        supplemented = sum(1 for country in countries if country)
     else:
         ip_country_map = {}
 
-    supplemented = 0
     for ip, port, country in ip_ports:
         final_country = country
         source = "数据源" if country else "待查询"
@@ -898,7 +1048,6 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
         if not country:
             final_country = ip_country_map.get(ip, '')
             if final_country:
-                supplemented += 1
                 source = "GeoIP 数据库"
         
         if not DESIRED_COUNTRIES:
@@ -922,19 +1071,24 @@ def write_ip_list(ip_ports: List[Tuple[str, int, str]]) -> str:
         logger.error(f"没有有效的节点来生成 {IP_LIST_FILE}")
         return None
 
+    # 直接写入固定文件，无论运行环境
     with open(IP_LIST_FILE, "w", encoding="utf-8") as f:
         for ip, port in filtered_ip_ports:
             f.write(f"{ip} {port}\n")
+    logger.info(f"已生成 {IP_LIST_FILE}")
+
     logger.info(f"生成 {IP_LIST_FILE}，包含 {len(filtered_ip_ports)} 个节点 (耗时: {time.time() - start_time:.2f} 秒)")
     save_country_cache(country_cache)
     return IP_LIST_FILE
 
 def run_speed_test() -> str:
     if not SPEEDTEST_SCRIPT:
-        logger.error("未找到测速脚本")
+        logger.info("未找到测速脚本")
         return None
+
+    # 确保 ip.txt 文件存在
     if not os.path.exists(IP_LIST_FILE):
-        logger.error(f"{IP_LIST_FILE} 不存在")
+        logger.error(f"{IP_LIST_FILE} 不存在，请确保 write_ip_list 已正确生成文件")
         return None
 
     start_time = time.time()
@@ -1005,7 +1159,7 @@ def run_speed_test() -> str:
         logger.error(f"测速异常: {e}")
         return None
 
-def filter_speed_and_deduplicate(csv_file: str):
+def filter_speed_and_deduplicate(csv_file: str, is_github_actions: bool):
     start_time = time.time()
     if not os.path.exists(csv_file):
         logger.info(f"{csv_file} 不存在")
@@ -1037,14 +1191,18 @@ def filter_speed_and_deduplicate(csv_file: str):
         final_rows.sort(key=lambda x: float(x[9]) if len(x) > 9 and x[9] and x[9].replace('.', '', 1).isdigit() else 0.0, reverse=True)
     except Exception as e:
         logger.warning(f"排序失败: {e}")
+
+    # 直接写入固定文件，无论运行环境
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(header)
         writer.writerows(final_rows)
+    logger.info(f"已生成 {csv_file}")
+
     logger.info(f"{csv_file} 处理完成，{len(final_rows)} 个数据节点 (耗时: {time.time() - start_time:.2f} 秒)")
     return len(final_rows)
 
-def generate_ips_file(csv_file: str):
+def generate_ips_file(csv_file: str, is_github_actions: bool):
     start_time = time.time()
     if not os.path.exists(csv_file):
         logger.info(f"{csv_file} 不存在")
@@ -1054,7 +1212,7 @@ def generate_ips_file(csv_file: str):
     try:
         with open(csv_file, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            next(reader)
+            next(reader)  # 跳过表头
             for row in reader:
                 if len(row) < 2:
                     continue
@@ -1064,24 +1222,29 @@ def generate_ips_file(csv_file: str):
                 country = country_cache.get(ip, '')
                 if not country:
                     country = get_country_from_ip(ip, country_cache)
-                final_nodes.append((ip, int(port), country))
+                # 只保留 DESIRED_COUNTRIES 中指定的国家
+                if DESIRED_COUNTRIES and country and country in DESIRED_COUNTRIES:
+                    final_nodes.append((ip, int(port), country))
     except Exception as e:
         logger.error(f"无法读取 {csv_file}: {e}")
         return
     if not final_nodes:
-        logger.info(f"没有符合条件的节点")
+        logger.info(f"没有符合条件的节点（DESIRED_COUNTRIES: {DESIRED_COUNTRIES}）")
         return
     country_count = defaultdict(int)
     labeled_nodes = []
     for ip, port, country in sorted(final_nodes, key=lambda x: x[2] or 'ZZ'):
-        if country:
-            country_count[country] += 1
-            emoji, name = COUNTRY_LABELS.get(country, ('🌐', '未知'))
-            label = f"{emoji}{name}-{country_count[country]}"
-            labeled_nodes.append((ip, port, label))
+        country_count[country] += 1
+        emoji, name = COUNTRY_LABELS.get(country, ('🌐', '未知'))
+        label = f"{emoji} {name}-{country_count[country]}"
+        labeled_nodes.append((ip, port, label))
+
+    # 直接写入固定文件
     with open(IPS_FILE, "w", encoding="utf-8-sig") as f:
         for ip, port, label in labeled_nodes:
             f.write(f"{ip}:{port}#{label}\n")
+    logger.info(f"已生成 {IPS_FILE}")
+
     logger.info(f"生成 {IPS_FILE}，{len(labeled_nodes)} 个数据节点 (耗时: {time.time() - start_time:.2f} 秒)")
     logger.info(f"国家分布: {dict(country_count)}")
     save_country_cache(country_cache)
@@ -1372,9 +1535,110 @@ def detect_environment() -> tuple[str, bool, Dict[str, str]]:
 
     return branch, is_github_actions, git_config
 
+def sync_with_remote(branch: str):
+    """
+    同步远程仓库：拉取远程分支并合并到本地分支
+    """
+    try:
+        # 检查工作目录是否有未提交更改
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        if result.stdout.strip():
+            logger.info("检测到未提交的更改，自动暂存以避免丢失")
+            subprocess.run(
+                ["git", "stash", "push", "-u"],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logger.info("已将本地更改暂存")
+
+        # 拉取远程仓库最新内容并合并
+        logger.info("拉取远程仓库最新内容")
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logger.info(f"将远程分支 origin/{branch} 合并到本地")
+        result = subprocess.run(
+            ["git", "merge", f"origin/{branch}"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logger.info(f"合并成功: {result.stdout}")
+
+        # 恢复本地更改（如果之前暂存）
+        if result.stdout.strip():
+            subprocess.run(
+                ["git", "stash", "pop"],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logger.info("已恢复本地更改")
+    except subprocess.CalledProcessError as e:
+        if "CONFLICT" in e.stderr:
+            logger.error(f"合并时发生冲突: {e.stderr}")
+            logger.error("请手动解决冲突后重新运行脚本")
+            sys.exit(1)
+        else:
+            logger.warning(f"无法同步远程仓库: {e.stderr}")
+            logger.info("继续本地操作")
+
 def commit_and_push(branch: str, is_github_actions: bool):
     try:
-        # 提交更改
+        # 检查工作目录是否有未提交更改
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        if result.stdout.strip():
+            logger.info("检测到未提交的更改，自动暂存以避免丢失")
+            subprocess.run(
+                ["git", "stash", "push", "-u"],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logger.info("已将本地更改暂存")
+
+        # 拉取远程仓库最新内容并合并
+        logger.info("拉取远程仓库最新内容")
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logger.info(f"将远程分支 origin/{branch} 合并到本地")
+        result = subprocess.run(
+            ["git", "merge", f"origin/{branch}"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logger.info(f"合并成功: {result.stdout}")
+
+        # 恢复本地更改（如果之前暂存）
+        if result.stdout.strip():
+            subprocess.run(
+                ["git", "stash", "pop"],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logger.info("已恢复本地更改")
+
+        # 只提交相关文件
         subprocess.run(
             ["git", "add", IP_LIST_FILE, FINAL_CSV, IPS_FILE],
             check=True,
@@ -1394,27 +1658,16 @@ def commit_and_push(branch: str, is_github_actions: bool):
     except subprocess.CalledProcessError as e:
         if "nothing to commit" in e.stderr:
             logger.info("没有需要提交的更改，无需推送")
-            return True  # 直接返回，避免不必要的推送
+            return True
+        elif "CONFLICT" in e.stderr:
+            logger.error(f"合并时发生冲突: {e.stderr}")
+            logger.error("请手动解决冲突后重新运行脚本")
+            return False
         else:
             logger.warning(f"无法提交更改: {e.stderr}")
             return False
 
     if not is_github_actions:
-        try:
-            # 先拉取远程更改并尝试变基
-            logger.info(f"尝试拉取远程分支并变基: {branch}")
-            result = subprocess.run(
-                ["git", "pull", "--rebase", "origin", branch],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            logger.info(f"拉取并变基成功: {result.stdout}")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"拉取并变基失败: {e.stderr}")
-            logger.error("可能存在冲突，请手动解决后再推送")
-            return False
-
         try:
             # 推送
             result = subprocess.run(
@@ -1440,11 +1693,14 @@ def main():
     args = parser.parse_args()
 
     setup_and_activate_venv()
-    # 传递 update_geoip 参数给 init_geoip_reader
     check_dependencies(offline=args.offline, update_geoip=args.update_geoip)
 
     branch, is_github_actions, git_config = detect_environment()
 
+    # 第一步：先合并远程仓库
+    sync_with_remote(branch)
+
+    # 第二步：运行测速和生成文件
     input_file = args.input
     if args.url and not os.path.exists(input_file):
         if is_temp_file_valid(TEMP_FILE):
@@ -1460,7 +1716,7 @@ def main():
         logger.error("没有提取到有效的 IP 和端口，退出")
         sys.exit(1)
 
-    ip_list_file = write_ip_list(ip_ports)
+    ip_list_file = write_ip_list(ip_ports, is_github_actions)
     if not ip_list_file:
         logger.error("无法生成 IP 列表，退出")
         sys.exit(1)
@@ -1470,16 +1726,17 @@ def main():
         logger.error("测速失败，退出")
         sys.exit(1)
 
-    node_count = filter_speed_and_deduplicate(csv_file)
+    node_count = filter_speed_and_deduplicate(csv_file, is_github_actions)
     if not node_count:
         logger.error("过滤后没有有效的节点，退出")
         sys.exit(1)
 
-    final_node_count = generate_ips_file(csv_file)
+    final_node_count = generate_ips_file(csv_file, is_github_actions)
     if not final_node_count:
         logger.error("无法生成最终的 ips.txt 文件，退出")
         sys.exit(1)
 
+    # 第三步：提交和推送
     if not commit_and_push(branch, is_github_actions):
         logger.warning("提交或推送失败，但本地文件已生成")
 
