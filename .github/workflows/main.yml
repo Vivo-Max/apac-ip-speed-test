@@ -1,7 +1,7 @@
 name: Proxy IP Check
 
 permissions:
-  contents: write  # 授予仓库内容的写权限，允许 git push
+  contents: write  # 需要写权限以推送文件
 
 on:
   push:
@@ -25,6 +25,7 @@ on:
 jobs:
   proxy-ip-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # 设置作业超时为 30 分钟
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -47,23 +48,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3
 
-      - name: Prepare iptest.sh
+      - name: Prepare iptest.sh and iptest
         run: |
           echo "Checking for iptest.sh..."
           if [ -f iptest.sh ]; then
             echo "Found existing iptest.sh:"
             cat iptest.sh
+            grep -q "iptest" iptest.sh && echo "iptest.sh references iptest binary" || echo "Warning: iptest.sh may not reference iptest"
           else
             echo "No iptest.sh, creating a minimal version"
-            printf '#!/bin/sh\n' > iptest.sh
-            printf 'echo "iptest.sh placeholder - speed test handled by Python script"\n' >> iptest.sh
+            cat << 'EOF' > iptest.sh
+#!/bin/bash
+while IFS=' ' read -r ip port; do
+    echo "Testing $ip:$port"
+    ./iptest -c "$ip" -p "$port" >> speedtest_results.txt
+done < ip.txt
+EOF
+            echo "Created iptest.sh with default iptest invocation"
           fi
           chmod +x iptest.sh
+          echo "Checking for iptest..."
           if [ -f iptest ]; then
             chmod +x iptest
             echo "iptest binary found"
+            ./iptest --version || echo "iptest version check failed, assuming it works"
           else
             echo "iptest binary not found"
+            echo "Error: iptest binary is required for iptest.sh"
+            exit 1
           fi
 
       - name: Run IP test and process results
@@ -72,31 +84,19 @@ jobs:
         run: |
           echo "Start time: $(date)"
           echo "开始时间: $(date)"
-          python3 ip-filter-speedtest-api.py || echo "Python script failed"
+          python3 ip-filter-speedtest-api-1769.py || echo "Python script failed"
           echo "End time: $(date)"
           echo "结束时间: $(date)"
 
       - name: Verify generated files
         run: |
-          ls -l ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
+          ls -l ip.txt ip.csv ips.txt speedtest.log || echo "Some files missing"
           cat speedtest.log || echo "speedtest.log not generated"
 
       - name: Commit and push generated files
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add ip.txt ip.csv ips.txt speedtest.log country_cache.json || echo "Some files missing"
+          git add ip.txt ip.csv ips.txt speedtest.log || true
           git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
           git push || echo "No changes to push"
-
-      - name: Upload results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: proxy-ip-results
-          path: |
-            ip.txt
-            ip.csv
-            ips.txt
-            speedtest.log
-            country_cache.json
