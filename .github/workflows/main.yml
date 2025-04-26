@@ -1,3 +1,4 @@
+```yaml
 name: Proxy IP Check
 
 permissions:
@@ -61,10 +62,10 @@ jobs:
 #!/bin/bash
 while IFS=' ' read -r ip port; do
     echo "Testing $ip:$port"
-    ./iptest -c "$ip" -p "$port" >> speedtest_results.txt
+    stdbuf -oL ./iptest -c "$ip" -p "$port"
 done < ip.txt
 EOF
-            echo "Created iptest.sh with default iptest invocation"
+            echo "Created iptest.sh with default iptest invocation using stdbuf"
           fi
           chmod +x iptest.sh
           echo "Checking for iptest..."
@@ -81,6 +82,7 @@ EOF
       - name: Run IP test and process results
         env:
           REAL_TIME_LOG: "true"  # 启用逐行打印，便于调试
+          PYTHONUNBUFFERED: "1"  # 强制 Python 无缓冲输出
         run: |
           echo "Start time: $(date)"
           echo "开始时间: $(date)"
@@ -100,3 +102,4 @@ EOF
           git add ip.txt ip.csv ips.txt speedtest.log || true
           git commit -m "Update generated files from proxy IP check" || echo "No changes to commit"
           git push || echo "No changes to push"
+```
