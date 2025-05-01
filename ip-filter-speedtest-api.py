@@ -34,11 +34,11 @@ try:
     with open(LOG_PATH, 'a', encoding='utf-8') as f:
         pass
     logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s [%(levelname)s] %(message)s',
+        level=logging.INFO,
+        format='%(message)s',
         handlers=[
             logging.FileHandler(LOG_PATH, encoding="utf-8", mode="w"),
-            logging.StreamHandler(sys.stdout)
+            logging.StreamHandler(sys.stdout)  # 恢复 StreamHandler
         ],
         force=True
     )
@@ -48,7 +48,7 @@ except Exception as e:
     print(f"无法创建日志文件 {LOG_PATH}: {e}")
     sys.exit(1)
 
-# 禁用 stdout 缓冲，确保日志实时输出
+# 禁用 stdout 缓冲，确保实时输出
 sys.stdout.reconfigure(line_buffering=True)
 
 # 配置
@@ -71,7 +71,7 @@ HEADERS = {
 DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR', 'IN', 'KP', 'VN', 'TH', 'MM']
 REQUIRED_PACKAGES = ['requests', 'charset-normalizer', 'geoip2==4.8.0', 'maxminddb>=2.0.0']
 CONFIG_FILE = ".gitconfig.json"
-SSH_KEY_PATH = "/data/data/com.termux/files/home/.ssh/id_ed25519"  # Termux 路径
+SSH_KEY_PATH = os.path.expanduser("~/.ssh/id_ed25519")
 VENV_DIR = ".venv"
 
 # 国家代码和标签
@@ -91,7 +91,7 @@ COUNTRY_LABELS = {
     'AE': ('🇦🇪', '阿联酋'), 'QA': ('🇶🇦', '卡塔尔'), 'IL': ('🇮🇱', '以色列'),
     'TR': ('🇹🇷', '土耳其'), 'IR': ('🇮🇷', '伊朗'),
     'CN': ('🇨🇳', '中国'), 'BD': ('🇧🇩', '孟加拉国'), 'PK': ('🇵🇰', '巴基斯坦'),
-    'LK': ('🇱🇰', '斯里兰卡'), 'NP': ('🇵🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
+    'LK': ('🇱�开户', '斯里兰卡'), 'NP': ('🇵🇵', '尼泊尔'), 'BT': ('🇧🇹', '不丹'),
     'MV': ('🇲🇻', '马尔代夫'), 'BN': ('🇧🇳', '文莱'), 'TL': ('🇹🇱', '东帝汶'),
     'EG': ('🇪🇬', '埃及'), 'ZA': ('🇿🇦', '南非'), 'NG': ('🇳🇬', '尼日利亚'),
     'KE': ('🇰🇪', '肯尼亚'), 'GH': ('🇬🇭', '加纳'), 'MA': ('🇲🇦', '摩洛哥'),
@@ -231,6 +231,75 @@ def find_speedtest_script() -> str:
     sys.exit(1)
 
 SPEEDTEST_SCRIPT = find_speedtest_script()
+
+def is_termux() -> bool:
+    """检查是否运行在 Termux 环境中"""
+    return os.getenv("TERMUX_VERSION") is not None or "com.termux" in os.getenv("PREFIX", "")
+
+def parse_speedlimit_from_script(script_path: str) -> float:
+    """从 iptest.sh 或 iptest.bat 解析 speedlimit 参数，默认为 8.0 MB/s"""
+    try:
+        # 使用 charset_normalizer 检测文件编码
+        with open(script_path, "rb") as f:
+            raw_data = f.read()
+        detected = detect(raw_data)
+        encoding = detected.get("encoding", "utf-8") or "utf-8"
+        logger.info(f"检测到 {script_path} 的编码: {encoding}")
+
+        # 解码文件内容
+        content = raw_data.decode(encoding, errors="replace")
+        logger.debug(f"{script_path} 内容（前 1000 字符）: {content[:1000]}")
+
+        # 匹配 speedlimit 参数，支持多种格式
+        speedlimit_match = re.search(
+            r'(?:--)?speed(?:limit|_limit)\s*[=:\s]\s*"?(\d*\.?\d*)"?\s*(?:MB/s)?',
+            content,
+            re.IGNORECASE
+        )
+        if speedlimit_match:
+            speedlimit = float(speedlimit_match.group(1))
+            logger.info(f"从 {script_path} 解析到 speedlimit: {speedlimit} MB/s")
+            return speedlimit
+
+        logger.info(f"未在 {script_path} 中找到 speedlimit 参数，使用默认值 8.0 MB/s")
+        return 8.0
+    except Exception as e:
+        logger.warning(f"无法解析 {script_path} 的 speedlimit 参数: {e}，使用默认值 8.0 MB/s")
+        return 8.0
+
+def filter_ip_csv_by_speed(csv_file: str, speed_limit: float):
+    """根据 speed_limit 过滤 ip.csv 中的低速节点"""
+    try:
+        temp_file = csv_file + ".tmp"
+        with open(csv_file, "r", encoding="utf-8") as f_in, open(temp_file, "w", newline="", encoding="utf-8") as f_out:
+            reader = csv.reader(f_in)
+            writer = csv.writer(f_out)
+            header = next(reader, None)
+            if not header:
+                logger.error(f"{csv_file} 没有有效的表头")
+                return
+            writer.writerow(header)
+            speed_col = 9  # 第 10 列是“下载速度MB/s”
+            filtered_count = 0
+            total_count = 0
+            for row in reader:
+                total_count += 1
+                if len(row) > speed_col and row[speed_col].strip():
+                    try:
+                        speed = float(row[speed_col])
+                        if speed >= speed_limit:
+                            writer.writerow(row)
+                        else:
+                            filtered_count += 1
+                    except ValueError:
+                        filtered_count += 1
+                        continue
+                else:
+                    filtered_count += 1
+            logger.info(f"过滤 {csv_file}: 总计 {total_count} 个节点，过滤掉 {filtered_count} 个低速节点（速度 < {speed_limit} MB/s）")
+        os.replace(temp_file, csv_file)
+    except Exception as e:
+        logger.error(f"过滤 {csv_file} 失败: {e}")
 
 geoip_reader = None
 
@@ -644,7 +713,7 @@ def detect_delimiter(lines: List[str]) -> str:
     return ','
 
 def is_valid_ip(ip: str) -> bool:
-    ipv4_pattern = re.compile(r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]? 0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
+    ipv4_pattern = re.compile(r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
     ipv6_pattern = re.compile(r'^(?:[0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$')
     return bool(ipv4_pattern.match(ip) or ipv6_pattern.match(ip.strip('[]')))
 
@@ -1031,11 +1100,17 @@ def run_speed_test() -> str:
         logger.error(f"无法读取 {IP_LIST_FILE}: {e}")
         return None
 
+    # 解析 speedlimit 参数
+    speed_limit = parse_speedlimit_from_script(SPEEDTEST_SCRIPT)
+    
     logger.info("开始测速")
     system = platform.system().lower()
+    is_termux_env = is_termux()
     try:
         if system == "windows":
             command = [SPEEDTEST_SCRIPT]
+        elif is_termux_env:
+            command = ["bash", SPEEDTEST_SCRIPT]  # Termux 使用 bash 执行 iptest.sh
         else:
             shell = shutil.which("bash") or shutil.which("sh") or "sh"
             command = ["stdbuf", "-oL", shell, SPEEDTEST_SCRIPT]
@@ -1050,16 +1125,16 @@ def run_speed_test() -> str:
             errors='replace'
         )
         stdout_lines, stderr_lines = [], []
-        def read_stream(stream, lines):
+        def read_stream(stream, lines, is_stderr=False):
             while True:
                 line = stream.readline()
                 if not line:
                     break
                 lines.append(line)
-                print(line.strip())
+                logger.info(line.strip())  # 直接记录原始输出，无前缀
                 sys.stdout.flush()
         stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines))
-        stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines))
+        stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines, True))
         stdout_thread.start()
         stderr_thread.start()
 
@@ -1069,9 +1144,9 @@ def run_speed_test() -> str:
         stdout = ''.join(stdout_lines)
         stderr = ''.join(stderr_lines)
         if stdout:
-            logger.info(f"测速输出: {stdout}")
+            logger.info(f"iptest 标准输出: {stdout}")
         if stderr:
-            logger.warning(f"测速错误: {stderr}")
+            logger.warning(f"iptest 错误输出: {stderr}")
 
         logger.info(f"测速完成，耗时: {time.time() - start_time:.2f} 秒")
         if return_code != 0:
@@ -1080,6 +1155,32 @@ def run_speed_test() -> str:
         if not os.path.exists(FINAL_CSV) or os.path.getsize(FINAL_CSV) < 10:
             logger.error(f"{FINAL_CSV} 未生成或内容无效")
             return None
+        
+        # 统计 ip.csv 的速度分布
+        try:
+            with open(FINAL_CSV, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                speeds = []
+                speed_col = 9  # 第 10 列是“下载速度MB/s”
+                for row in reader:
+                    if len(row) > speed_col and row[speed_col].strip():
+                        try:
+                            speeds.append(float(row[speed_col]))
+                        except ValueError:
+                            continue
+                if speeds:
+                    logger.info(f"ip.csv 速度统计: 平均={sum(speeds)/len(speeds):.2f} MB/s, "
+                               f"最小={min(speeds):.2f} MB/s, 最大={max(speeds):.2f} MB/s, "
+                               f"节点数={len(speeds)}")
+        except Exception as e:
+            logger.warning(f"无法统计 ip.csv 速度分布: {e}")
+
+        # 在 Termux 环境中，强制过滤低速节点
+        if is_termux_env:
+            logger.info(f"检测到 Termux 环境，应用速度下限过滤 (speedlimit={speed_limit} MB/s)")
+            filter_ip_csv_by_speed(FINAL_CSV, speed_limit=speed_limit)  # 使用动态 speed_limit
+
         with open(FINAL_CSV, "r", encoding="utf-8") as f:
             lines = [line.strip() for line in f if line.strip()]
             node_count = len(lines) - 1 if lines else 0
@@ -1233,23 +1334,56 @@ def verify_remote_url(remote_url: str) -> bool:
         return False
 
 def verify_ssh_connection(ssh_key_path: str) -> bool:
-    """验证 SSH 连接到 GitHub"""
+    """验证与 GitHub 的 SSH 连接是否有效"""
+    logger.info(f"开始验证 SSH 连接到 GitHub，使用密钥: {ssh_key_path}")
+    if not os.path.exists(ssh_key_path):
+        logger.error(f"SSH 密钥文件 {ssh_key_path} 不存在")
+        logger.info("请生成 SSH 密钥：")
+        logger.info("1. 运行 'ssh-keygen -t ed25519 -C \"your_email@example.com\"'")
+        logger.info("2. 将公钥 (~/.ssh/id_ed25519.pub) 添加到 GitHub: https://github.com/settings/keys")
+        return False
+
+    if platform.system().lower() != "windows":
+        try:
+            file_stat = os.stat(ssh_key_path)
+            if file_stat.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+                logger.warning(f"SSH 密钥文件 {ssh_key_path} 权限过于宽松，建议设置为 600")
+                logger.info("修复权限：运行 'chmod 600 {ssh_key_path}'")
+        except OSError as e:
+            logger.warning(f"无法检查 SSH 密钥文件权限: {e}")
+
     try:
         result = subprocess.run(
-            ["ssh", "-T", "-o", "StrictHostKeyChecking=no", "git@github.com"],
+            ["ssh", "-T", "-o", "StrictHostKeyChecking=no", "-i", ssh_key_path, "git@github.com"],
             capture_output=True,
             text=True,
             check=False
         )
-        if "successfully authenticated" in result.stdout or "successfully authenticated" in result.stderr:
+        output = (result.stdout + result.stderr).lower()
+        if "successfully authenticated" in output:
             logger.info("SSH 连接到 GitHub 验证成功")
             return True
         else:
-            logger.warning(f"SSH 连接验证失败: {result.stdout or result.stderr}")
-            logger.info("请确保公钥已添加到 GitHub: https://github.com/settings/keys")
+            logger.warning(f"SSH 连接验证失败，输出: {output.strip()}")
+            logger.info("请确保以下步骤已完成：")
+            logger.info("1. SSH 私钥 ({ssh_key_path}) 存在且有效")
+            logger.info("2. 对应的公钥已添加到 GitHub: https://github.com/settings/keys")
+            logger.info("3. 检查 SSH 代理（如果使用）：运行 'ssh-add {ssh_key_path}'")
             return False
     except subprocess.CalledProcessError as e:
         logger.error(f"无法验证 SSH 连接: {e.stderr}")
+        logger.info("可能的原因：")
+        logger.info("- SSH 客户端未安装或配置错误")
+        logger.info("- 网络连接问题")
+        logger.info("- SSH 密钥未正确添加到 ssh-agent（尝试 'ssh-add {ssh_key_path}'）")
+        return False
+    except FileNotFoundError:
+        logger.error("SSH 客户端未安装，请安装 OpenSSH")
+        logger.info("Ubuntu: sudo apt-get install openssh-client")
+        logger.info("Windows: 确保 Git Bash 或 OpenSSH 已安装")
+        return False
+    except Exception as e:
+        logger.error(f"验证 SSH 连接时发生意外错误: {e}")
         return False
 
 def load_config() -> Dict[str, str]:
@@ -1266,7 +1400,6 @@ def load_config() -> Dict[str, str]:
                 logger.warning(f"缓存文件缺少字段: {missing_fields}")
                 return {}
 
-            # 验证配置项
             if not validate_username(config['user_name']):
                 logger.warning(f"缓存文件中 user_name 无效: {config['user_name']}")
                 return {}
@@ -1286,7 +1419,6 @@ def load_config() -> Dict[str, str]:
                 logger.warning(f"缓存文件中 ssh_key_path 不可读: {config['ssh_key_path']}")
                 return {}
 
-            # 验证远程地址
             remote_url = f"git@github.com:{config['git_user_name']}/{config['repo_name']}.git"
             if not validate_remote_url(remote_url):
                 logger.warning(f"构造的远程地址无效: {remote_url}")
@@ -1294,8 +1426,6 @@ def load_config() -> Dict[str, str]:
             if not verify_remote_url(remote_url):
                 logger.warning(f"远程仓库不可访问: {remote_url}")
                 return {}
-
-            # 验证 SSH 连接
             if not verify_ssh_connection(config['ssh_key_path']):
                 logger.warning("SSH 连接验证失败")
                 return {}
@@ -1323,6 +1453,47 @@ def save_config(config: Dict[str, str]):
         logger.error(f"无法保存缓存文件 {CONFIG_FILE}: {e}")
         sys.exit(1)
 
+def prompt_git_config() -> Dict[str, str]:
+    """提示用户输入 Git 配置"""
+    logger.info("需要配置 Git 信息")
+    user_name = input("请输入 Git 用户名: ").strip()
+    while not validate_username(user_name):
+        user_name = input("请输入 Git 用户名: ").strip()
+
+    user_email = input("请输入 Git 邮箱: ").strip()
+    while not validate_email(user_email):
+        user_email = input("请输入 Git 邮箱: ").strip()
+
+    git_user_name = input("请输入 GitHub 用户名: ").strip()
+    while not validate_username(git_user_name):
+        git_user_name = input("请输入 GitHub 用户名: ").strip()
+
+    repo_name = input("请输入 GitHub 仓库名称: ").strip()
+    while not validate_repo_name(repo_name):
+        repo_name = input("请输入 GitHub 仓库名称: ").strip()
+
+    remote_url = f"git@github.com:{git_user_name}/{repo_name}.git"
+    if not validate_remote_url(remote_url):
+        logger.error(f"构造的远程仓库地址无效: {remote_url}")
+        sys.exit(1)
+    if not verify_remote_url(remote_url):
+        logger.error(f"远程仓库不可访问: {remote_url}")
+        logger.info("请确保：1. 仓库存在；2. GitHub 用户名正确；3. 你有访问权限")
+        sys.exit(1)
+
+    ssh_key_path = SSH_KEY_PATH
+    if not os.path.exists(ssh_key_path) or not verify_ssh_connection(ssh_key_path):
+        logger.info("SSH 密钥无效或不存在，请生成新密钥")
+        ssh_key_path = generate_ssh_key()
+
+    return {
+        "user_name": user_name,
+        "user_email": user_email,
+        "repo_name": repo_name,
+        "ssh_key_path": ssh_key_path,
+        "git_user_name": git_user_name
+    }
+
 def generate_ssh_key() -> str:
     """生成 SSH 密钥并验证连接"""
     ssh_dir = os.path.expanduser("~/.ssh")
@@ -1333,377 +1504,341 @@ def generate_ssh_key() -> str:
         logger.info(f"SSH 密钥已存在: {private_key_path}")
         if verify_ssh_connection(private_key_path):
             return private_key_path
-        else:
-            logger.info("现有 SSH 密钥无法连接 GitHub，将生成新密钥")
-    
+        logger.info("现有 SSH 密钥无法连接到 GitHub，将生成新密钥")
+
     try:
         os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
-        logger.info("正在生成 SSH 密钥...")
+        logger.info(f"生成新的 SSH 密钥: {private_key_path}")
+        email = input("请输入用于 SSH 密钥的邮箱（用于注释）: ").strip()
+        while not validate_email(email):
+            email = input("请输入有效的邮箱: ").strip()
+
         subprocess.run(
-            ["ssh-keygen", "-t", "ed25519", "-f", private_key_path, "-N", ""],
+            ["ssh-keygen", "-t", "ed25519", "-C", email, "-f", private_key_path, "-N", ""],
             check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True
         )
-        os.chmod(private_key_path, stat.S_IRUSR | stat.S_IWUSR)
-        os.chmod(public_key_path, stat.S_IRUSR | stat.S_IWUSR)
         logger.info(f"SSH 密钥生成成功: {private_key_path}")
 
-        with open(public_key_path, 'r', encoding='utf-8') as f:
-            public_key = f.read().strip()
-        logger.info("请将以下公钥添加到 GitHub SSH 密钥设置 (https://github.com/settings/keys):")
-        logger.info(public_key)
-        logger.info("添加完成后，按回车继续...")
-        input()
+        if platform.system().lower() != "windows":
+            os.chmod(private_key_path, 0o600)
+            os.chmod(public_key_path, 0o644)
+            logger.info(f"已设置密钥文件权限: {private_key_path} (600), {public_key_path} (644)")
 
-        # 验证新生成的 SSH 密钥
+        with open(public_key_path, "r", encoding="utf-8") as f:
+            public_key = f.read().strip()
+        logger.info("SSH 公钥内容如下，请添加到 GitHub: https://github.com/settings/keys")
+        logger.info(public_key)
+        input("请将以上公钥添加到 GitHub 后按 Enter 继续...")
+
         if not verify_ssh_connection(private_key_path):
-            logger.error("新生成的 SSH 密钥无法连接 GitHub，请检查公钥是否正确添加到 GitHub")
+            logger.error("新生成的 SSH 密钥仍无法连接到 GitHub")
             sys.exit(1)
 
+        logger.info("SSH 密钥验证成功")
         return private_key_path
     except subprocess.CalledProcessError as e:
         logger.error(f"生成 SSH 密钥失败: {e.stderr}")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"生成 SSH 密钥时发生异常: {e}")
+        logger.error(f"生成 SSH 密钥时发生未知错误: {e}")
         sys.exit(1)
 
-def setup_git_config() -> Dict[str, str]:
-    """设置 Git 配置并验证"""
+def setup_git_config(is_github_actions: bool = False):
+    """设置 Git 配置"""
+    if is_github_actions:
+        logger.info("检测到 GitHub Actions 环境，跳过交互式 Git 配置")
+        try:
+            subprocess.run(["git", "config", "--global", "user.name", "github-actions[bot]"], check=True)
+            subprocess.run(["git", "config", "--global", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
+            logger.info("已设置 GitHub Actions 默认 Git 配置")
+            return
+        except subprocess.CalledProcessError as e:
+            logger.error(f"设置 GitHub Actions Git 配置失败: {e}")
+            sys.exit(1)
+
+    # 检查是否已有全局 Git 配置
+    try:
+        current_user = subprocess.run(["git", "config", "--global", "user.name"], capture_output=True, text=True, check=False).stdout.strip()
+        current_email = subprocess.run(["git", "config", "--global", "user.email"], capture_output=True, text=True, check=False).stdout.strip()
+        if current_user and current_email:
+            logger.info(f"检测到现有 Git 全局配置: user.name={current_user}, user.email={current_email}")
+            config = load_config()
+            if config:
+                logger.info("使用缓存的 Git 配置")
+                return
+            logger.info("未找到有效的缓存配置，将提示输入")
+        else:
+            logger.info("未检测到 Git 全局配置，将提示输入")
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"检查 Git 全局配置失败: {e}")
+
+    # 加载或提示配置
     config = load_config()
-    if config:
-        return config
+    if not config:
+        config = prompt_git_config()
+        save_config(config)
 
-    logger.info("检测到本地运行，需要配置 Git 信息")
-    
-    # 输入并验证用户名
-    user_name = input("请输入 Git 用户名: ").strip()
-    while not validate_username(user_name):
-        user_name = input("请输入 Git 用户名: ").strip()
+    # 设置 Git 全局配置
+    try:
+        subprocess.run(["git", "config", "--global", "user.name", config['user_name']], check=True)
+        subprocess.run(["git", "config", "--global", "user.email", config['user_email']], check=True)
+        logger.info(f"已设置 Git 全局配置: user.name={config['user_name']}, user.email={config['user_email']}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"设置 Git 全局配置失败: {e}")
+        sys.exit(1)
 
-    # 输入并验证邮箱
-    user_email = input("请输入 Git 邮箱: ").strip()
-    while not validate_email(user_email):
-        user_email = input("请输入 Git 邮箱: ").strip()
+def commit_and_push(is_github_actions: bool = False):
+    """提交并推送更改到 GitHub"""
+    config = load_config()
+    if not config:
+        logger.error(f"未找到有效的 Git 配置，请确保 {CONFIG_FILE} 存在且有效")
+        sys.exit(1)
 
-    # 输入并验证 GitHub 用户名
-    git_user_name = input("请输入 GitHub 用户名: ").strip()
-    while not validate_username(git_user_name):
-        git_user_name = input("请输入 GitHub 用户名: ").strip()
-
-    # 输入并验证仓库名称
-    repo_name = input("请输入 GitHub 仓库名称: ").strip()
-    while not validate_repo_name(repo_name):
-        repo_name = input("请输入 GitHub 仓库名称: ").strip()
-
-    # 验证远程仓库地址
-    remote_url = f"git@github.com:{git_user_name}/{repo_name}.git"
+    remote_url = f"git@github.com:{config['git_user_name']}/{config['repo_name']}.git"
     if not validate_remote_url(remote_url):
-        logger.error(f"构造的远程仓库地址无效: {remote_url}")
+        logger.error(f"远程仓库地址无效: {remote_url}")
         sys.exit(1)
     if not verify_remote_url(remote_url):
-        logger.error(f"远程仓库不可访问: {remote_url}")
-        logger.info("请确保：1. 仓库存在；2. GitHub 用户名正确；3. 你有访问权限")
+        logger.error(f"远程仓库 {remote_url} 不可访问")
+        sys.exit(1)
+    if not verify_ssh_connection(config['ssh_key_path']):
+        logger.error("SSH 连接验证失败")
         sys.exit(1)
 
-    # 生成并验证 SSH 密钥
-    ssh_key_path = generate_ssh_key()
-
-    config = {
-        "user_name": user_name,
-        "user_email": user_email,
-        "repo_name": repo_name,
-        "ssh_key_path": ssh_key_path,
-        "git_user_name": git_user_name
-    }
-    save_config(config)
-    return config
-
-def initialize_git_repo():
-    """初始化 Git 仓库"""
-    git_dir = os.path.join(os.getcwd(), ".git")
-    if not os.path.exists(git_dir):
-        logger.info("当前目录不是 Git 仓库，执行 git init")
-        try:
-            subprocess.run(
-                ["git", "init"],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            logger.info("Git 仓库初始化成功")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"无法初始化 Git 仓库: {e.stderr}")
-            return False
-    return True
-
-def detect_environment() -> tuple[str, bool, Dict[str, str]]:
-    """检测环境并设置 Git 配置"""
-    is_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
-    
     try:
-        git_version = subprocess.run(
-            ["git", "--version"],
+        # 初始化 Git 仓库
+        if not os.path.exists(".git"):
+            subprocess.run(["git", "init"], check=True)
+            logger.info("已初始化 Git 仓库")
+        else:
+            logger.info("Git 仓库已存在")
+
+        # 检查工作区状态
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
             capture_output=True,
             text=True,
             check=True
-        ).stdout.strip()
-        logger.info(f"Git 版本: {git_version}")
-    except FileNotFoundError:
-        logger.error("Git 未安装，请先安装 Git (https://git-scm.com/downloads)")
-        sys.exit(1)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"无法检测 Git 版本: {e.stderr}")
-        sys.exit(1)
+        )
+        if "UU" in status_result.stdout:
+            logger.warning("检测到未解决的合并冲突，请手动解决：")
+            logger.warning("1. 运行 'git status' 查看冲突文件")
+            logger.warning("2. 解决冲突后运行 'git add <file>'")
+            logger.warning("3. 提交 'git commit'")
+            return
 
-    if not is_github_actions:
-        initialize_git_repo()
-
-    try:
-        branch = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True
-        ).stdout.strip()
-        if branch == "HEAD":
-            logger.warning("当前处于分离头状态，将尝试切换到默认分支")
-            try:
-                default_branch = subprocess.run(
-                    ["git", "remote", "show", "origin"],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                ).stdout
-                for line in default_branch.splitlines():
-                    if "HEAD branch" in line:
-                        branch = line.split(":")[-1].strip()
-                        subprocess.run(
-                            ["git", "checkout", branch],
-                            check=True,
-                            capture_output=True,
-                            text=True
-                        )
-                        logger.info(f"已切换到默认分支: {branch}")
-                        break
-                else:
-                    branch = "main"
-                    logger.warning(f"无法检测远程默认分支，使用默认分支: {branch}")
-                    subprocess.run(
-                        ["git", "checkout", "-b", branch],
-                        check=True,
-                        capture_output=True,
-                        text=True
-                    )
-                    logger.info(f"创建并切换到新分支: {branch}")
-            except subprocess.CalledProcessError as e:
-                branch = "main"
-                logger.warning(f"无法处理分支切换: {e.stderr}，使用默认分支: {branch}")
-                subprocess.run(
-                    ["git", "checkout", "-b", branch],
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
-                logger.info(f"创建并切换到新分支: {branch}")
-    except subprocess.CalledProcessError as e:
-        branch = "main"
-        logger.warning(f"无法检测当前分支: {e.stderr}，使用默认分支: {branch}")
+        # 设置远程仓库
         try:
-            subprocess.run(
-                ["git", "checkout", "-b", branch],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            logger.info(f"创建并切换到新分支: {branch}")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"无法创建分支 {branch}: {e.stderr}")
-            branch = "main"
-
-    git_config = {}
-    if not is_github_actions:
-        git_config = setup_git_config()
-        try:
-            subprocess.run(
-                ["git", "config", "--local", "user.name", git_config["user_name"]],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            subprocess.run(
-                ["git", "config", "--local", "user.email", git_config["user_email"]],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            logger.info(f"已设置 Git 用户: {git_config['user_name']} <{git_config['user_email']}>")
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"无法设置 Git 用户配置: {e.stderr}. 继续执行后续步骤")
-
-        # 检查远程仓库地址
-        remote_url = f"git@github.com:{git_config['git_user_name']}/{git_config['repo_name']}.git"
-        try:
-            current_url = subprocess.run(
-                ["git", "remote", "get-url", "origin"],
-                capture_output=True,
-                text=True,
-                check=True
-            ).stdout.strip()
-            logger.debug(f"当前远程仓库地址: {current_url}")
-            if current_url != remote_url:
-                logger.info(f"远程仓库地址不匹配，更新为: {remote_url}")
-                subprocess.run(
-                    ["git", "remote", "set-url", "origin", remote_url],
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
+            subprocess.run(["git", "remote", "set-url", "origin", remote_url], check=True)
         except subprocess.CalledProcessError:
-            logger.info(f"未设置远程仓库，添加: {remote_url}")
-            subprocess.run(
-                ["git", "remote", "add", "origin", remote_url],
-                check=True,
-                capture_output=True,
-                text=True
-            )
+            subprocess.run(["git", "remote", "add", "origin", remote_url], check=True)
+            logger.info(f"已设置远程仓库: {remote_url}")
 
-        # 验证远程仓库（复用 load_config 的结果）
-        if not git_config:
-            logger.error("Git 配置无效，无法继续")
-            sys.exit(1)
-        logger.debug(f"远程仓库 {remote_url} 已由 load_config 验证，跳过重复验证")
-
-    return branch, is_github_actions, git_config
-
-def commit_and_push(is_github_actions: bool, git_config: Dict[str, str]):
-    """提交并推送更改到远程仓库"""
-    if not is_github_actions:
-        try:
-            # 确保 .gitignore 排除备份文件
-            gitignore_path = ".gitignore"
-            gitignore_content = """
-backup/
-*.tar.gz
-"""
-            if not os.path.exists(gitignore_path):
-                with open(gitignore_path, "w", encoding="utf-8") as f:
-                    f.write(gitignore_content)
-                logger.info(f"已创建 .gitignore 文件，排除 backup/ 和 *.tar.gz")
+        # 添加文件
+        files_to_commit = [IPS_FILE, FINAL_CSV]
+        for file in files_to_commit:
+            if os.path.exists(file):
+                subprocess.run(["git", "add", file], check=True)
+                logger.info(f"已添加文件到 Git: {file}")
             else:
-                with open(gitignore_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                if "backup/" not in content or "*.tar.gz" not in content:
-                    with open(gitignore_path, "a", encoding="utf-8") as f:
-                        f.write(gitignore_content)
-                    logger.info(f"已更新 .gitignore，添加 backup/ 和 *.tar.gz 排除规则")
+                logger.warning(f"文件 {file} 不存在，跳过添加")
 
-            # 检查文件大小
-            files_to_add = [IPS_FILE, FINAL_CSV, IP_LIST_FILE]
-            existing_files = [f for f in files_to_add if os.path.exists(f)]
-            for file in existing_files:
-                size_mb = os.path.getsize(file) / (1024 * 1024)
-                if size_mb > 100:
-                    logger.error(f"文件 {file} 大小 {size_mb:.2f} MB 超过 GitHub 100 MB 限制")
-                    sys.exit(1)
+        # 检查是否有更改
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        if not status_result.stdout.strip():
+            logger.info("没有更改需要提交")
+            return
 
-            if not existing_files:
-                logger.warning("没有可添加的文件")
+        # 提交更改
+        commit_message = "Update IP lists and test results" if is_github_actions else "Update IP lists and test results via script"
+        subprocess.run(["git", "commit", "-m", commit_message], check=True)
+        logger.info(f"已提交更改: {commit_message}")
+
+        # 推送
+        branch = "main" if is_github_actions else "main"
+        subprocess.run(["git", "push", "origin", branch], check=True)
+        logger.info(f"已推送更改到远程仓库: {remote_url} (分支: {branch})")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Git 操作失败: {e.stderr or str(e)}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"提交和推送过程中发生未知错误: {e}")
+        sys.exit(1)
+
+def filter_speed_and_deduplicate(csv_file: str, is_github_actions: bool):
+    start_time = time.time()
+    if not os.path.exists(csv_file):
+        logger.info(f"{csv_file} 不存在")
+        return
+    seen = set()
+    final_rows = []
+    try:
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            if not header:
+                logger.error(f"{csv_file} 没有有效的表头")
                 return
+            for row in reader:
+                if len(row) < 2 or not row[0].strip():
+                    continue
+                key = (row[0], row[1])
+                if key not in seen:
+                    seen.add(key)
+                    final_rows.append(row)
+    except Exception as e:
+        logger.error(f"无法处理 {csv_file}: {e}")
+        return
+    if not final_rows:
+        logger.info(f"没有有效的节点")
+        os.remove(csv_file)
+        return
+    try:
+        final_rows.sort(key=lambda x: float(x[9]) if len(x) > 9 and x[9] and x[9].replace('.', '', 1).isdigit() else 0.0, reverse=True)
+    except Exception as e:
+        logger.warning(f"排序失败: {e}")
 
-            # 添加文件
-            subprocess.run(
-                ["git", "add"] + existing_files,
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            logger.info(f"已添加文件: {', '.join(existing_files)}")
+    with open(csv_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(final_rows)
+    logger.info(f"已生成 {csv_file}")
 
-            # 检查是否有更改
-            status = subprocess.run(
-                ["git", "status", "--porcelain"],
-                check=True,
-                capture_output=True,
-                text=True
-            ).stdout.strip()
-            if not status:
-                logger.info("没有更改需要提交")
-                return
+    logger.info(f"{csv_file} 处理完成，{len(final_rows)} 个数据节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    return len(final_rows)
 
-            # 提交更改
-            commit_message = "Update speedtest results and IP lists"
-            subprocess.run(
-                ["git", "commit", "-m", commit_message],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            logger.info(f"已提交更改: {commit_message}")
+def generate_ips_file(csv_file: str, is_github_actions: bool):
+    start_time = time.time()
+    if not os.path.exists(csv_file):
+        logger.info(f"{csv_file} 不存在")
+        return
+    country_cache = load_country_cache()
+    final_nodes = []
+    try:
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                if len(row) < 2:
+                    continue
+                ip, port = row[0], row[1]
+                if not is_valid_ip(ip) or not is_valid_port(port):
+                    continue
+                country = country_cache.get(ip, '')
+                if not country:
+                    country = get_country_from_ip(ip, country_cache)
+                if DESIRED_COUNTRIES and country and country in DESIRED_COUNTRIES:
+                    final_nodes.append((ip, int(port), country))
+    except Exception as e:
+        logger.error(f"无法读取 {csv_file}: {e}")
+        return
+    if not final_nodes:
+        logger.info(f"没有符合条件的节点（DESIRED_COUNTRIES: {DESIRED_COUNTRIES}）")
+        return
+    country_count = defaultdict(int)
+    labeled_nodes = []
+    for ip, port, country in sorted(final_nodes, key=lambda x: x[2] or 'ZZ'):
+        country_count[country] += 1
+        emoji, name = COUNTRY_LABELS.get(country, ('🌐', '未知'))
+        label = f"{emoji} {name}-{country_count[country]}"
+        labeled_nodes.append((ip, port, label))
 
-            # 推送更改
-            remote_url = f"git@github.com:{git_config['git_user_name']}/{git_config['repo_name']}.git"
-            if not verify_ssh_connection(git_config["ssh_key_path"]):
-                logger.error("SSH 连接验证失败，无法推送")
-                sys.exit(1)
-            subprocess.run(
-                ["git", "push", "origin", "main"],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            logger.info("已推送更改到远程仓库")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"提交或推送失败: {e.stderr}")
-            sys.exit(1)
-    else:
-        logger.info("在 GitHub Actions 环境中，跳过手动推送")
+    with open(IPS_FILE, "w", encoding="utf-8-sig") as f:
+        for ip, port, label in labeled_nodes:
+            f.write(f"{ip}:{port}#{label}\n")
+    logger.info(f"已生成 {IPS_FILE}")
+
+    logger.info(f"生成 {IPS_FILE}，{len(labeled_nodes)} 个数据节点 (耗时: {time.time() - start_time:.2f} 秒)")
+    logger.info(f"国家分布: {dict(country_count)}")
+    save_country_cache(country_cache)
+    return len(labeled_nodes)
 
 def main():
-    parser = argparse.ArgumentParser(description="IP Filter and Speedtest Script")
-    parser.add_argument("--offline", action="store_true", help="Run in offline mode")
-    parser.add_argument("--update-geoip", action="store_true", help="Force update GeoIP database")
+    parser = argparse.ArgumentParser(description="IP 测试和筛选脚本")
+    parser.add_argument("--input-file", type=str, default=INPUT_FILE, help=f"输入 CSV 文件路径 (默认: {INPUT_FILE})")
+    parser.add_argument("--url", type=str, default=INPUT_URL, help=f"输入 URL (默认: {INPUT_URL})")
+    parser.add_argument("--offline", action="store_true", help="离线模式，不下载 GeoIP 数据库")
+    parser.add_argument("--update-geoip", action="store_true", help="强制更新 GeoIP 数据库")
     args = parser.parse_args()
 
+    is_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
+    logger.info(f"运行环境: {'GitHub Actions' if is_github_actions else '本地'}, 离线模式: {args.offline}, 更新 GeoIP: {args.update_geoip}")
+
+    # 设置虚拟环境并安装依赖
     setup_and_activate_venv()
+
+    # 检查依赖
     check_dependencies(offline=args.offline, update_geoip=args.update_geoip)
 
-    branch, is_github_actions, git_config = detect_environment()
+    # 设置 Git 配置
+    setup_git_config(is_github_actions=is_github_actions)
 
-    if os.path.exists(INPUT_FILE):
-        logger.info(f"发现本地输入文件: {INPUT_FILE}")
-        ip_ports = extract_ip_ports_from_file(INPUT_FILE)
+    # 处理输入（优先读取本地 input.csv，若不存在或无效则从 URL 获取）
+    ip_ports = []
+    if os.path.exists(args.input_file):
+        ip_ports = extract_ip_ports_from_file(args.input_file)
+        if ip_ports:
+            logger.info(f"从本地文件 {args.input_file} 提取到 {len(ip_ports)} 个节点")
+        else:
+            logger.warning(f"本地文件 {args.input_file} 无有效节点，尝试从 URL 获取")
     else:
-        logger.info(f"未找到本地输入文件，尝试下载: {INPUT_URL}")
-        temp_file = fetch_and_save_to_temp_file(INPUT_URL)
-        if not temp_file:
-            logger.error("无法下载输入文件，退出")
+        logger.info(f"本地文件 {args.input_file} 不存在，尝试从 URL 获取")
+
+    if not ip_ports and args.url and not args.offline:
+        temp_file = fetch_and_save_to_temp_file(args.url)
+        if temp_file and is_temp_file_valid(temp_file):
+            ip_ports = extract_ip_ports_from_file(temp_file)
+            logger.info(f"从 URL {args.url} 提取到 {len(ip_ports)} 个节点")
+        else:
+            logger.error(f"无法从 URL {args.url} 获取有效节点")
             sys.exit(1)
-        ip_ports = extract_ip_ports_from_file(temp_file)
 
     if not ip_ports:
-        logger.error("未提取到有效的 IP 和端口")
+        logger.error("没有有效的 IP 和端口数据")
         sys.exit(1)
 
-    ip_list_file = write_ip_list(ip_ports, is_github_actions)
+    # 写入 IP 列表
+    ip_list_file = write_ip_list(ip_ports, is_github_actions=is_github_actions)
     if not ip_list_file:
-        logger.error("无法生成 IP 列表文件")
+        logger.error("无法生成 IP 列表")
         sys.exit(1)
 
-    final_csv = run_speed_test()
-    if not final_csv:
-        logger.error("测速失败或未生成结果")
+    # 运行测速
+    csv_file = run_speed_test()
+    if not csv_file:
+        logger.error("测速失败")
         sys.exit(1)
 
-    filter_speed_and_deduplicate(final_csv, is_github_actions)
-    generate_ips_file(final_csv, is_github_actions)
+    # 过滤和去重
+    node_count = filter_speed_and_deduplicate(csv_file, is_github_actions=is_github_actions)
+    if not node_count:
+        logger.error("没有有效的节点")
+        sys.exit(1)
 
-    if git_config:
-        commit_and_push(is_github_actions, git_config)
-    else:
-        logger.info("无 Git 配置，跳过提交和推送")
+    # 生成最终 IPs 文件
+    final_node_count = generate_ips_file(csv_file, is_github_actions=is_github_actions)
+    if not final_node_count:
+        logger.error("无法生成最终 IPs 文件")
+        sys.exit(1)
+
+    # 提交并推送
+    commit_and_push(is_github_actions=is_github_actions)
+
+    logger.info("脚本执行完成")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("用户中断脚本执行")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"脚本执行失败: {e}")
+        sys.exit(1)
