@@ -1,7 +1,7 @@
-name: IP Tester Workflow
+name: IP Filter Speedtest API Workflow
 
 on:
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:
     inputs:
       offline_mode:
         description: 'Run in offline mode (skip GeoIP database download)'
@@ -16,7 +16,7 @@ on:
 
 env:
   MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
-  PYTHON_VERSION: '3.10'  # Matches the script's requirements
+  PYTHON_VERSION: '3.10'
 
 jobs:
   run-ip-tester:
@@ -46,9 +46,12 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         
+    - name: Make script executable
+      run: chmod +x ip-filter-speedtest-api.py
+        
     - name: Run IP tester script
       run: |
-        python -u main.py \
+        python -u ip-filter-speedtest-api.py \
           --offline ${{ github.event.inputs.offline_mode }} \
           --update-geoip ${{ github.event.inputs.update_geoip }}
           
