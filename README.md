@@ -63,7 +63,7 @@ python ip-filter-speedtest-api.py
 
 命令行参数
 --input <文件路径>：指定输入文件路径（默认：input.csv）。
---url <URL>：指定输入数据的 URL（默认：https://bihai.cf/CFIP/CUCC/standard.csv）。
+--url <URL>：指定输入数据的 URL[示例：(https://example.com/ips.csv)]。
 --offline：启用离线模式，仅使用本地 GeoIP 数据库，不尝试下载。
 --update-geoip：强制更新 GeoIP 数据库。
 
