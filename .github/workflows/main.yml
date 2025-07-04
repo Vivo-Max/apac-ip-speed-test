@@ -7,7 +7,7 @@ on:
         description: 'Run in offline mode (skip GeoIP database download)'
         required: false
         type: boolean
-        default: true  # 默认启用 offline_mode
+        default: true
       update_geoip:
         description: 'Force update GeoIP database'
         required: false
@@ -22,14 +22,27 @@ jobs:
   run-ip-tester:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 确保有写入仓库内容的权限
-      actions: read    # 允许读取 Actions 相关信息
+      contents: write
+      actions: read
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}  # 使用 GITHUB_TOKEN 进行认证
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cache output files
+      id: cache-output
+      uses: actions/cache@v4
+      with:
+        path: |
+          ip.csv
+          ip.txt
+          ips.txt
+          GeoLite2-Country.mmdb
+        key: ${{ runner.os }}-output-${{ hashFiles('input.csv', 'ip.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-output-
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -50,7 +63,7 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git config --global --add safe.directory $PWD  # 确保当前目录被信任
+        git config --global --add safe.directory $PWD
 
     - name: Make scripts executable
       run: |
@@ -70,7 +83,7 @@ jobs:
         fi
         if [ -f iptest ]; then
           chmod +x iptest
-          ls -l iptest  # 输出文件权限和信息以供调试
+          ls -l iptest
         else
           echo "Error: iptest binary not found"
           exit 1
@@ -84,32 +97,67 @@ jobs:
           echo "Warning: GeoLite2-Country.mmdb not found, relying on offline mode"
         fi
 
-    - name: Run IP tester script
+    - name: Check input changes
+      id: check-input
       run: |
+        if [ -f input.csv ]; then
+          CURRENT_HASH=$(sha256sum input.csv | awk '{print $1}')
+          echo "Current input.csv hash: $CURRENT_HASH"
+          if [ -f .input_hash ]; then
+            PREV_HASH=$(cat .input_hash)
+            echo "Previous input.csv hash: $PREV_HASH"
+            if [ "$CURRENT_HASH" = "$PREV_HASH" ] && [ -f ip.csv ] && [ -f ip.txt ] && [ -f ips.txt ]; then
+              echo "Input unchanged and output files exist, skipping speed test"
+              echo "skip_speed_test=true" >> $GITHUB_OUTPUT
+            else
+              echo "Input changed or output files missing, running speed test"
+              echo "skip_speed_test=false" >> $GITHUB_OUTPUT
+              echo "$CURRENT_HASH" > .input_hash
+            fi
+          else
+            echo "No previous hash, running speed test"
+            echo "skip_speed_test=false" >> $GITHUB_OUTPUT
+            echo "$CURRENT_HASH" > .input_hash
+          fi
+        else
+          echo "input.csv not found, running speed test"
+          echo "skip_speed_test=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Run IP tester script
+      id: run-script
+      if: steps.check-input.outputs.skip_speed_test != 'true'
+      run: |
+        echo "Running IP tester script..."
         echo "MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-'Not set'}"
         echo "Offline mode: ${{ github.event.inputs.offline_mode }}"
         echo "Update GeoIP: ${{ github.event.inputs.update_geoip }}"
         python -u ip-filter-speedtest-api.py \
           $([[ "${{ github.event.inputs.offline_mode }}" == "true" ]] && echo "--offline") \
-          $([[ "${{ github.event.inputs.update_geoip }}" == "true" ]] && echo "--update-geoip")
+          $([[ "${{ github.event.inputs.update_geoip }}" == "true" ]] && echo "--update-geoip") \
+          || { echo "IP tester script failed"; exit 1; }
       env:
         MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
 
     - name: Check for output files
+      if: steps.run-script.outcome == 'success' || steps.check-input.outputs.skip_speed_test == 'true'
       run: |
-        if [ ! -f ip.csv ] || [ ! -f ip.txt ]; then
-          echo "Error: Output files (ip.csv or ip.txt) not found."
+        if [ ! -f ip.csv ] || [ ! -f ip.txt ] || [ ! -f ips.txt ]; then
+          echo "Error: Output files (ip.csv, ip.txt, or ips.txt) not found."
           exit 1
         fi
-        ls -l ip.csv ip.txt  # 输出文件信息以供调试
+        ls -l ip.csv ip.txt ips.txt
+        echo "Output files verified"
 
     - name: Commit and push results
+      if: steps.run-script.outcome == 'success' || steps.check-input.outputs.skip_speed_test == 'true'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        git add ip.csv ip.txt
+        git add ip.csv ip.txt ips.txt .input_hash
         git commit -m "Update IP test results [skip ci]" || echo "No changes to commit"
         git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:${{ github.ref_name }} || echo "No changes to push"
+        echo "Commit and push completed"
 
     - name: Upload results as artifact
       uses: actions/upload-artifact@v4
@@ -118,4 +166,5 @@ jobs:
         path: |
           ip.csv
           ip.txt
-        if-no-files-found: error  # 如果文件不存在，报错
+          ips.txt
+        if-no-files-found: error
