@@ -52,8 +52,8 @@ jobs:
     - name: Run IP tester script
       run: |
         python -u ip-filter-speedtest-api.py \
-          --offline ${{ github.event.inputs.offline_mode }} \
-          --update-geoip ${{ github.event.inputs.update_geoip }}
+          $([[ "${{ github.event.inputs.offline_mode }}" == "true" ]] && echo "--offline") \
+          $([[ "${{ github.event.inputs.update_geoip }}" == "true" ]] && echo "--update-geoip")
           
     - name: Commit and push results
       run: |
