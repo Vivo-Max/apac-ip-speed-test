@@ -7,7 +7,7 @@ on:
         description: 'Run in offline mode (skip GeoIP database download)'
         required: false
         type: boolean
-        default: false
+        default: true  # 默认启用 offline_mode
       update_geoip:
         description: 'Force update GeoIP database'
         required: false
@@ -56,12 +56,14 @@ jobs:
       run: |
         if [ -f ip-filter-speedtest-api.py ]; then
           chmod +x ip-filter-speedtest-api.py
+          ls -l ip-filter-speedtest-api.py
         else
           echo "Error: ip-filter-speedtest-api.py not found"
           exit 1
         fi
         if [ -f iptest.sh ]; then
           chmod +x iptest.sh
+          ls -l iptest.sh
         else
           echo "Error: iptest.sh not found"
           exit 1
@@ -74,12 +76,19 @@ jobs:
           exit 1
         fi
 
+    - name: Check GeoIP database
+      run: |
+        if [ -f GeoLite2-Country.mmdb ]; then
+          echo "GeoLite2-Country.mmdb exists, size: $(ls -lh GeoLite2-Country.mmdb | awk '{print $5}')"
+        else
+          echo "Warning: GeoLite2-Country.mmdb not found, relying on offline mode"
+        fi
+
     - name: Run IP tester script
       run: |
-        if [ -z "${{ env.MAXMIND_LICENSE_KEY }}" ] && [ "${{ github.event.inputs.offline_mode }}" != "true" ]; then
-          echo "Error: MAXMIND_LICENSE_KEY is not set and offline mode is not enabled."
-          exit 1
-        fi
+        echo "MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-'Not set'}"
+        echo "Offline mode: ${{ github.event.inputs.offline_mode }}"
+        echo "Update GeoIP: ${{ github.event.inputs.update_geoip }}"
         python -u ip-filter-speedtest-api.py \
           $([[ "${{ github.event.inputs.offline_mode }}" == "true" ]] && echo "--offline") \
           $([[ "${{ github.event.inputs.update_geoip }}" == "true" ]] && echo "--update-geoip")
