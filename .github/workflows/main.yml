@@ -21,52 +21,92 @@ env:
 jobs:
   run-ip-tester:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write  # 确保有写入仓库内容的权限
+      actions: read    # 允许读取 Actions 相关信息
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}  # 使用 GITHUB_TOKEN 进行认证
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: ${{ env.PYTHON_VERSION }}
-        
+
     - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y git openssh-client
-        
+
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3 fake-useragent
-        
+
     - name: Configure Git
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        
-    - name: Make script executable
-      run: chmod +x ip-filter-speedtest-api.py
-        
+        git config --global --add safe.directory $PWD  # 确保当前目录被信任
+
+    - name: Make scripts executable
+      run: |
+        if [ -f ip-filter-speedtest-api.py ]; then
+          chmod +x ip-filter-speedtest-api.py
+        else
+          echo "Error: ip-filter-speedtest-api.py not found"
+          exit 1
+        fi
+        if [ -f iptest.sh ]; then
+          chmod +x iptest.sh
+        else
+          echo "Error: iptest.sh not found"
+          exit 1
+        fi
+        if [ -f iptest ]; then
+          chmod +x iptest
+          ls -l iptest  # 输出文件权限和信息以供调试
+        else
+          echo "Error: iptest binary not found"
+          exit 1
+        fi
+
     - name: Run IP tester script
       run: |
+        if [ -z "${{ env.MAXMIND_LICENSE_KEY }}" ] && [ "${{ github.event.inputs.offline_mode }}" != "true" ]; then
+          echo "Error: MAXMIND_LICENSE_KEY is not set and offline mode is not enabled."
+          exit 1
+        fi
         python -u ip-filter-speedtest-api.py \
           $([[ "${{ github.event.inputs.offline_mode }}" == "true" ]] && echo "--offline") \
           $([[ "${{ github.event.inputs.update_geoip }}" == "true" ]] && echo "--update-geoip")
-          
-    - name: Commit and push results
+      env:
+        MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
+
+    - name: Check for output files
       run: |
-        git add ip.csv ips.txt
-        git commit -m "Update IP test results [skip ci]"
-        git push
+        if [ ! -f ip.csv ] || [ ! -f ip.txt ]; then
+          echo "Error: Output files (ip.csv or ip.txt) not found."
+          exit 1
+        fi
+        ls -l ip.csv ip.txt  # 输出文件信息以供调试
+
+    - name: Commit and push results
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        
+      run: |
+        git add ip.csv ip.txt
+        git commit -m "Update IP test results [skip ci]" || echo "No changes to commit"
+        git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:${{ github.ref_name }} || echo "No changes to push"
+
     - name: Upload results as artifact
       uses: actions/upload-artifact@v4
       with:
         name: ip-test-results
         path: |
           ip.csv
-          ips.txt
+          ip.txt
+        if-no-files-found: error  # 如果文件不存在，报错
