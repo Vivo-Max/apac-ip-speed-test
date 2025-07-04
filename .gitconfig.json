@@ -1,69 +1,7 @@
-name: IP Tester Workflow
-
-on:
-  workflow_dispatch:  # Allows manual triggering
-    inputs:
-      offline_mode:
-        description: 'Run in offline mode (skip GeoIP database download)'
-        required: false
-        type: boolean
-        default: false
-      update_geoip:
-        description: 'Force update GeoIP database'
-        required: false
-        type: boolean
-        default: false
-
-env:
-  MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
-  PYTHON_VERSION: '3.10'  # Matches the script's requirements
-
-jobs:
-  run-ip-tester:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y git openssh-client
-        
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install requests charset-normalizer geoip2==4.8.0 maxminddb>=2.0.0 packaging>=21.3 fake-useragent
-        
-    - name: Configure Git
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        
-    - name: Run IP tester script
-      run: |
-        python -u main.py \
-          --offline ${{ github.event.inputs.offline_mode }} \
-          --update-geoip ${{ github.event.inputs.update_geoip }}
-          
-    - name: Commit and push results
-      run: |
-        git add ip.csv ips.txt
-        git commit -m "Update IP test results [skip ci]"
-        git push
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Upload results as artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: ip-test-results
-        path: |
-          ip.csv
-          ips.txt
+{
+  "user_name": "用户名",
+  "user_email": "邮箱",
+  "repo_name": "仓库名称",
+  "ssh_key_path": "SSH密钥路径",
+  "git_user_name": "用户名"
+}
