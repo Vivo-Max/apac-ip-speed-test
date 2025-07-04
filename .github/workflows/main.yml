@@ -64,6 +64,7 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git config --global --add safe.directory $PWD
+        echo "Git configuration set"
 
     - name: Make scripts executable
       run: |
@@ -135,9 +136,10 @@ jobs:
         python -u ip-filter-speedtest-api.py \
           $([[ "${{ github.event.inputs.offline_mode }}" == "true" ]] && echo "--offline") \
           $([[ "${{ github.event.inputs.update_geoip }}" == "true" ]] && echo "--update-geoip") \
-          || { echo "IP tester script failed"; exit 1; }
+          || echo "IP tester script exited with non-zero code, proceeding to check outputs"
       env:
         MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
+        GITHUB_ACTIONS: true
 
     - name: Check for output files
       if: steps.run-script.outcome == 'success' || steps.check-input.outputs.skip_speed_test == 'true'
