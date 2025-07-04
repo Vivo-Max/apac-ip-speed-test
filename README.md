@@ -1,9 +1,11 @@
 IP筛选和测速工具说明文档
 
 概述
+
 ip-filter-speedtest-api.py 是一个功能强大的 Python 脚本，用于从指定输入文件或 URL 获取 IP 地址和端口信息，结合 GeoIP 数据库进行地理位置筛选，并通过测速脚本对 IP 进行性能测试，最终生成优选的 IP 列表。脚本支持虚拟环境管理、依赖自动安装、Git 仓库管理以及 GitHub Actions 自动化运行，适用于需要筛选优质网络节点的场景。
 
 功能
+
 IP和端口提取：从 CSV、JSON 或其他格式的输入文件/URL 中提取 IP 地址和端口，支持多种分隔符和格式。
 GeoIP 筛选：利用 MaxMind GeoLite2 数据库，筛选指定国家/地区的 IP，支持自定义国家列表。
 测速功能：通过外部测速脚本（iptest.sh 或 iptest.bat）对 IP 进行延迟和速度测试。
@@ -13,17 +15,20 @@ Git 集成：支持本地 Git 仓库初始化、SSH 密钥生成、提交和推�
 日志记录：详细记录操作过程，支持文件和控制台输出，便于调试和监控。
 
 使用场景
+
 网络优化：筛选低延迟、高速的 IP 用于代理、VPN 或 CDN。
 自动化运维：结合 GitHub Actions 实现 IP 筛选和更新的自动化流程。
 数据分析：处理和分析大规模 IP 数据，提取特定国家/地区的网络节点。
 
 运行环境
 系统要求
+
 操作系统：Windows、Linux 或 macOS
 Python 版本：Python 3.6+
 依赖工具：Git（用于版本控制和推送）
 
 依赖包
+
 脚本会自动安装以下 Python 包：
 requests>=2.32.3
 charset-normalizer>=3.4.1
@@ -32,12 +37,14 @@ maxminddb>=2.0.0
 packaging>=21.3
 
 外部依赖
+
 测速脚本：需要 iptest.sh（Linux/macOS）或 iptest.bat（Windows）存在于脚本目录下，并具有执行权限。
 GeoIP 数据库：MaxMind GeoLite2-Country 数据库 (GeoLite2-Country.mmdb)，脚本会自动下载或使用本地缓存。
 MaxMind 许可证（可选）：设置环境变量 MAXMIND_LICENSE_KEY 以从 MaxMind 下载数据库。
 
 文件说明
 输入文件
+
 input.csv：默认输入文件，包含 IP、端口和可选的国家信息。
 ip.txt：生成的 IP 和端口列表，供测速脚本使用。
 ips.txt：最终输出文件，包含优选 IP、端口和国家标签。
@@ -47,21 +54,25 @@ GeoLite2-Country.mmdb：GeoIP 数据库文件。
 speedtest.log：运行日志文件。
 
 配置文件
+
 .gitconfig.json：存储 Git 用户信息和仓库配置。
 ~/.ssh/id_ed25519：SSH 密钥文件，用于 GitHub 认证。
 
 使用方法
 安装
+
 确保系统中已安装 Python 3.6+ 和 Git。
 克隆或下载脚本至本地目录。
 确保测速脚本（iptest.sh 或 iptest.bat）存在于脚本目录下，并具有可执行权限（Linux/macOS 下可运行 chmod +x iptest.sh）。
 （可选）设置环境变量 MAXMIND_LICENSE_KEY 用于从 MaxMind 下载 GeoIP 数据库。
 
 运行
+
 在终端中运行以下命令：
 python ip-filter-speedtest-api.py
 
 命令行参数
+
 --input <文件路径>：指定输入文件路径（默认：input.csv）。
 --url <URL>：指定输入数据的 URL[示例：(https://example.com/ips.csv)]。
 --offline：启用离线模式，仅使用本地 GeoIP 数据库，不尝试下载。
@@ -71,6 +82,7 @@ python ip-filter-speedtest-api.py
 python ip-filter-speedtest-api.py --url https://example.com/ips.csv --offline
 
 运行流程
+
 初始化虚拟环境：创建并激活 .venv，安装依赖包。
 检查 GeoIP 数据库：验证本地数据库有效性，必要时下载最新版本。
 提取 IP 和端口：从输入文件或 URL 解析 IP、端口和国家信息。
@@ -82,6 +94,7 @@ Git 操作：将 ip.txt、ip.csv 和 ips.txt 提交并推送至 GitHub 仓库。
 日志记录：全程记录操作细节至 speedtest.log 和控制台。
 
 配置说明
+
 国家筛选
 在脚本中修改 DESIRED_COUNTRIES 列表以指定目标国家代码（ISO 3166-1 alpha-2），例如：
 DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR']
@@ -89,6 +102,7 @@ DESIRED_COUNTRIES = ['TW', 'JP', 'HK', 'SG', 'KR']
 默认包含台湾、日本、香港、新加坡、韩国等地区。
 
 GeoIP 数据库
+
 数据库默认存储为 GeoLite2-Country.mmdb。
 优先从 GitHub（P3TERX/GeoLite.mmdb）下载最新版本，若失败则尝试 MaxMind（需 MAXMIND_LICENSE_KEY）。
 使用 --update-geoip 参数强制更新数据库。
