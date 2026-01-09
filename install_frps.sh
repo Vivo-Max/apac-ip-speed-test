@@ -121,20 +121,30 @@ install_frps(){
     mkdir -p "$(dirname "$CONF_PATH")"
     if [[ ! -f $CONF_PATH ]]; then
         TOKEN=$(openssl rand -hex 16)
-        cat > "$CONF_PATH" <<EOF
+        # 先生成「模板化」配置（占位符）
+        cat > "$CONF_PATH" <<'EOF'
 bindPort = 7000
-auth.token = "$TOKEN"
+auth.token = "__TOKEN_PLACEHOLDER__"
 vhostHTTPSPort = 8443
 [log]
 level = "info"
+
+[[proxies]]
+name = "auth-https"
+type = https
+localIP = "127.0.0.1"
+localPort = 8080
+customDomains = ["__DOMAIN_PLACEHOLDER__"]
 EOF
-        log "已生成配置文件，Token：$TOKEN"
+        # 把真实 token 替换占位符
+        sed -i "s/__TOKEN_PLACEHOLDER__/$TOKEN/g" "$CONF_PATH"
+        log "已生成「模板化」配置文件，Token：$TOKEN"
     else
         TOKEN=$(awk -F'"' '/auth.token/ {print $2}' "$CONF_PATH")
         log "使用已有配置，Token：$TOKEN"
     fi
 
-    # systemd 单元
+    # systemd 单元（工作目录指向当前目录）
     [[ -f /etc/systemd/system/frps.service ]] && systemctl disable --now frps.service 2>/dev/null
     cat > /etc/systemd/system/frps.service <<EOF
 [Unit]
@@ -143,7 +153,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/usr/local/frp
+WorkingDirectory=$BASE_DIR
 ExecStartPre=/usr/bin/touch $LOG_FILE
 ExecStart=$BIN_PATH -c $CONF_PATH
 Restart=always
