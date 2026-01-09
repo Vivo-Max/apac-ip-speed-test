@@ -84,8 +84,8 @@ menu_main(){
         echo "3) 生成客户端模板"
         echo "4) 查看运行状态"
         echo "5) 卸载 frps"
-        echo "6) 重启 frps"  # <--- 新增
-        echo "7) 终止 frps"  # <--- 新增
+        echo "6) 重启 frps"
+        echo "7) 终止 frps"
         echo "0) 退出"
         echo "=================================="
         read -rp "请选择操作 [0-7]: " choice
@@ -95,8 +95,8 @@ menu_main(){
             3) gen_tmpl     ;;
             4) show_status  ;;
             5) uninstall    ;;
-            6) restart_frps ;; # <--- 新增处理
-            7) stop_frps    ;; # <--- 新增处理
+            6) restart_frps ;;
+            7) stop_frps    ;;
             0) log "再见！"; exit 0 ;;
             *) warn "无效选择，请重试";;
         esac
@@ -224,6 +224,14 @@ manual_domain(){
     read -rp "请输入 HTTPS 穿透端口 [当前 $CURRENT_PORT]: " NEW_PORT
     NEW_PORT=${NEW_PORT:-$CURRENT_PORT}
 
+    # === 端口校验逻辑（新增/修复）
+    if ! [[ "$NEW_PORT" =~ ^[0-9]+$ ]] || [ "$NEW_PORT" -lt 1 ] || [ "$NEW_PORT" -gt 65535 ]; then
+        warn "端口号 '$NEW_PORT' 无效，必须是 1 到 65535 之间的数字。"
+        read -rp "按回车返回菜单..."
+        return
+    fi
+    # ===
+
     if ss -ltn | awk '{print $4}' | grep -q ":${NEW_PORT}$"; then
         warn "端口 $NEW_PORT 已被占用，请更换或先停用占用服务"
         read -rp "按回车返回菜单..."
@@ -251,6 +259,14 @@ auto_domain(){
     CURRENT_PORT=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
     read -rp "请输入 HTTPS 穿透端口 [当前 $CURRENT_PORT]: " NEW_PORT
     NEW_PORT=${NEW_PORT:-$CURRENT_PORT}
+
+    # === 端口校验逻辑（新增/修复）
+    if ! [[ "$NEW_PORT" =~ ^[0-9]+$ ]] || [ "$NEW_PORT" -lt 1 ] || [ "$NEW_PORT" -gt 65535 ]; then
+        warn "端口号 '$NEW_PORT' 无效，必须是 1 到 65535 之间的数字。"
+        read -rp "按回车返回菜单..."
+        return
+    fi
+    # ===
 
     if ss -ltn | awk '{print $4}' | grep -q ":${NEW_PORT}$"; then
         warn "端口 $NEW_PORT 已被占用，请更换或先停用占用服务"
