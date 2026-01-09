@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ########################### 基础变量 ###################################
-WORK_DIR='/usr/local/frp'
-BIN_PATH='/usr/local/bin/frps'
-CONF_PATH='/etc/frp/frps.toml'
-LOG_FILE='/var/log/frps.log'
-CLIENT_TMPL="$PWD/frpc.toml"
+BASE_DIR="$PWD"                          # 以执行目录为根
+BIN_PATH="$BASE_DIR/frps"                # 可执行文件
+CONF_PATH="$BASE_DIR/frps.toml"          # 配置
+LOG_FILE="$BASE_DIR/frps.log"            # 日志
+CLIENT_TMPL="$BASE_DIR/frpc.toml"        # 客户端模板
 
 ########################### 工具函数 ###################################
 log() { echo "[INFO] $*"; }
