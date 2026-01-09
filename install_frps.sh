@@ -13,15 +13,18 @@ log() { echo "[INFO] $*"; }
 warn(){ echo "[WARN] $*"; }
 err() { echo "[ERROR] $*" >&2; exit 1;}
 
+check_root(){ [[ $EUID -eq 0 ]] || err "请使用 root 运行"; }
+command_exists(){ command -v "$1" >/dev/null 2>&1; }
+
 install_deps(){
     if command -v apt >/dev/null 2>&1; then
-        apt update -y && apt install -y wget tar curl openssl
+        apt update -y && apt install -y wget tar curl openssl jq
     elif command -v yum >/dev/null 2>&1; then
-        yum install -y wget tar curl openssl
+        yum install -y wget tar curl openssl jq
     elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y wget tar curl openssl
+        dnf install -y wget tar curl openssl jq
     else
-        err "未识别的包管理器，请手动安装 wget tar curl openssl"
+        err "未识别的包管理器，请手动安装 wget tar curl openssl jq"
     fi
 }
 
@@ -38,13 +41,46 @@ get_arch(){
     esac
 }
 
+########################### Cloudflare API ##############################
+cf_add_dns(){
+    local subdomain=$1
+    local domain=${subdomain#*.}          # 主域名
+    local record_name=${subdomain%.$domain}  # 主机记录
+    local server_ip=$(curl -s ifconfig.me)
+
+    # 获取 Zone ID
+    local zone_id=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+        "https://api.cloudflare.com/client/v4/zones?name=$domain" | jq -r '.result[0].id // empty')
+    [[ -z $zone_id ]] && { warn "未找到 Zone，回退手动添加"; return 1; }
+
+    # 添加 A 记录并开启代理
+    local resp=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records" \
+        -H "Authorization: Bearer $CF_API_TOKEN" \
+        -H "Content-Type: application/json" \
+        --data "{
+            \"type\":\"A\",
+            \"name\":\"$record_name\",
+            \"content\":\"$server_ip\",
+            \"ttl\":120,
+            \"proxied\":true
+        }")
+
+    if echo "$resp" | jq -e '.success' >/dev/null; then
+        log "DNS 记录已自动添加并开启代理"
+        return 0
+    else
+        warn "API 调用失败：$(echo "$resp" | jq -r '.errors[0].message')"
+        return 1
+    fi
+}
+
 ########################### 业务函数 ###################################
 menu_main(){
     while true; do
         echo
         echo "======== frp 一键管理菜单 ========"
         echo "1) 安装/更新 frps"
-        echo "2) 配置域名"
+        echo "2) 设置域名"
         echo "3) 生成客户端模板"
         echo "4) 查看运行状态"
         echo "5) 卸载 frps"
@@ -123,12 +159,72 @@ EOF
 }
 
 set_domain(){
+    log "---- 设置域名 ----"
+    echo "1) 仅写入配置（手动去 Cloudflare 添加 DNS）"
+    echo "2) 自动添加 DNS 并写入配置（需要 Cloudflare API Token）"
+    read -rp "请选择 [1-2]: " MODE
+
+    case $MODE in
+        1) manual_domain ;;
+        2) auto_domain   ;;
+        *) warn "无效选择"; return ;;
+    esac
+}
+
+manual_domain(){
     read -rp "请输入完整子域名 (如 auth.example.com): " DOMAIN
     [[ -z $DOMAIN ]] && { warn "域名为空，返回菜单"; return; }
-    # 重写配置中的 customDomains 字段
+
+    CURRENT_PORT=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
+    read -rp "请输入 HTTPS 穿透端口 [当前 $CURRENT_PORT]: " NEW_PORT
+    NEW_PORT=${NEW_PORT:-$CURRENT_PORT}
+
+    if ss -ltn | awk '{print $4}' | grep -q ":${NEW_PORT}$"; then
+        warn "端口 $NEW_PORT 已被占用，请更换或先停用占用服务"
+        read -rp "按回车返回菜单..."
+        return
+    fi
+
+    sed -i "s/^vhostHTTPSPort.*/vhostHTTPSPort = $NEW_PORT/" "$CONF_PATH"
     sed -i "s|customDomains = \[[^]]*\]|customDomains = [\"$DOMAIN\"]|" "$CONF_PATH" 2>/dev/null || true
     systemctl restart frps
-    log "域名已设为 $DOMAIN，需解析到本机 IP 并在 Cloudflare 开启代理"
+    log "域名已设为 $DOMAIN，端口已设为 $NEW_PORT"
+    log "请手动到 Cloudflare 控制台添加 A 记录并开启橙色云"
+    read -rp "按回车返回菜单..."
+}
+
+auto_domain(){
+    read -rp "请输入完整子域名 (如 auth.example.com): " DOMAIN
+    [[ -z $DOMAIN ]] && { warn "域名为空，返回菜单"; return; }
+
+    # 读取或交互获取 Token
+    if [[ -z "${CF_API_TOKEN:-}" ]]; then
+        read -rp "请输入 Cloudflare API Token（需 Zone:DNS:Edit 权限）: " TOKEN
+        export CF_API_TOKEN=$TOKEN
+    fi
+
+    CURRENT_PORT=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
+    read -rp "请输入 HTTPS 穿透端口 [当前 $CURRENT_PORT]: " NEW_PORT
+    NEW_PORT=${NEW_PORT:-$CURRENT_PORT}
+
+    if ss -ltn | awk '{print $4}' | grep -q ":${NEW_PORT}$"; then
+        warn "端口 $NEW_PORT 已被占用，请更换或先停用占用服务"
+        read -rp "按回车返回菜单..."
+        return
+    fi
+
+    # 先写入配置
+    sed -i "s/^vhostHTTPSPort.*/vhostHTTPSPort = $NEW_PORT/" "$CONF_PATH"
+    sed -i "s|customDomains = \[[^]]*\]|customDomains = [\"$DOMAIN\"]|" "$CONF_PATH" 2>/dev/null || true
+
+    # 尝试自动添加 DNS
+    if cf_add_dns "$DOMAIN"; then
+        log "DNS 记录已自动添加并开启代理，配置已生效"
+    else
+        warn "自动添加失败，已回退为「仅写入配置」"
+        log "请手动到 Cloudflare 控制台添加 A 记录并开启橙色云"
+    fi
+    systemctl restart frps
     read -rp "按回车返回菜单..."
 }
 
