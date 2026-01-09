@@ -132,7 +132,7 @@ level = "info"
 [[proxies]]
 name = "auth-https"
 type = https
-localIP = "127.0.0.1"
+localIP = "localhost"
 localPort = 8080
 customDomains = ["__DOMAIN_PLACEHOLDER__"]
 EOF
