@@ -2,15 +2,15 @@
 set -euo pipefail
 
 ########################### 基础变量 ###################################
-BASE_DIR="$PWD"                          # 以执行目录为根
-BIN_PATH="$BASE_DIR/frps"                # 可执行文件
-CONF_PATH="$BASE_DIR/frps.toml"          # 配置
-LOG_FILE="$BASE_DIR/frps.log"            # 日志
-CLIENT_TMPL="$BASE_DIR/frpc.toml"        # 客户端模板
+BASE_DIR="$PWD"                                 # 以执行目录为根
+BIN_PATH="$BASE_DIR/frps"                       # 可执行文件
+CONF_PATH="$BASE_DIR/frps.toml"                 # 配置
+LOG_FILE="$BASE_DIR/frps.log"                   # 日志
+CLIENT_TMPL="$BASE_DIR/frpc.toml"               # 客户端模板
 
 ########################### 工具函数 ###################################
 log() { echo "[INFO] $*"; }
-warn(){ echo "[WARN] $*"; }
+warn(){ echo "[WARN] $*" >&2; }
 err() { echo "[ERROR] $*" >&2; exit 1;}
 
 check_root(){ [[ $EUID -eq 0 ]] || err "请使用 root 运行"; }
@@ -45,7 +45,7 @@ get_arch(){
 cf_add_dns(){
     local subdomain=$1
     local domain=${subdomain#*.}          # 主域名
-    local record_name=${subdomain%.$domain}  # 主机记录
+    local record_name=${subdomain%.$domain} # 主机记录
     local server_ip=$(curl -s ifconfig.me)
 
     # 获取 Zone ID
@@ -84,20 +84,55 @@ menu_main(){
         echo "3) 生成客户端模板"
         echo "4) 查看运行状态"
         echo "5) 卸载 frps"
+        echo "6) 重启 frps"  # <--- 新增
+        echo "7) 终止 frps"  # <--- 新增
         echo "0) 退出"
         echo "=================================="
-        read -rp "请选择操作 [0-5]: " choice
+        read -rp "请选择操作 [0-7]: " choice
         case $choice in
             1) install_frps ;;
             2) set_domain   ;;
             3) gen_tmpl     ;;
             4) show_status  ;;
             5) uninstall    ;;
+            6) restart_frps ;; # <--- 新增处理
+            7) stop_frps    ;; # <--- 新增处理
             0) log "再见！"; exit 0 ;;
             *) warn "无效选择，请重试";;
         esac
     done
 }
+
+# --- 新增函数：重启 frps ---
+restart_frps(){
+    log "正在重启 frps..."
+    if systemctl is-active frps >/dev/null 2>&1; then
+        systemctl restart frps
+        log "frps 已重启"
+    else
+        warn "frps 未运行，将尝试启动..."
+        systemctl start frps
+        if systemctl is-active frps >/dev/null 2>&1; then
+            log "frps 已启动"
+        else
+            err "frps 启动失败，请检查日志 $LOG_FILE"
+        fi
+    fi
+    read -rp "按回车返回菜单..."
+}
+
+# --- 新增函数：终止 frps ---
+stop_frps(){
+    log "正在终止 frps..."
+    if systemctl is-active frps >/dev/null 2>&1; then
+        systemctl stop frps
+        log "frps 已终止"
+    else
+        warn "frps 未运行，无需终止"
+    fi
+    read -rp "按回车返回菜单..."
+}
+
 
 install_frps(){
     log "开始安装/更新 frps ..."
