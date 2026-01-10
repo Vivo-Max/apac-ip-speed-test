@@ -15,7 +15,7 @@ err() { echo "[ERROR] $*" >&2; exit 1;}
 check_root(){ [[ $EUID -eq 0 ]] || err "请使用 root 运行"; }
 command_exists(){ command -v "$1" >/dev/null 2>&1; }
 install_deps(){
-    if command -v apt >/dev/null 2>&1; then
+    if command -v apt >/dev/null 2>&1; then  # <--- 这句是合法的
         apt update -y && apt install -y wget tar curl openssl jq
     elif command -v yum >/dev/null 2>&1; then
         yum install -y wget tar curl openssl jq
