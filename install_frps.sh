@@ -5,8 +5,8 @@ set -euo pipefail
 BASE_DIR="$PWD" # 保留当前目录，仅用于客户端模板和非系统文件，不用于服务配置
 BIN_PATH="/usr/local/bin/frps" # 可执行文件安装路径
 CONF_DIR="/etc/frp" # 配置目录安装路径
-CONF_PATH="$CONF_DIR/frps.toml" # 配置文件
-LOG_FILE="/var/log/frps.log" # 系统日志文件 (用于 frps.toml)
+CONF_PATH="$CONF_DIR/frps.ini" # 配置文件路径统一改为 .ini
+LOG_FILE="/var/log/frps.log" # 系统日志文件
 CLIENT_TMPL="$BASE_DIR/frpc.toml" # 客户端模板
 ########################### 工具函数 ###################################
 log() { echo "[INFO] $*"; }
@@ -43,7 +43,6 @@ find_zone_id(){
     local parts=(${subdomain//\./ })
     local len=${#parts[@]}
     
-    # 尝试从二级域名开始往上查找（如 test.sub.example.com -> sub.example.com -> example.com）
     for ((i=$len; i>=2; i--)); do
         local try_domain=$(IFS='.'; echo "${parts[*]: -i}")
         local zone_id=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
@@ -65,15 +64,12 @@ cf_add_dns(){
     if [[ -n "${ZONE_ID:-}" ]]; then
         zone_id=$ZONE_ID
     else
-        # 调用增强的 Zone ID 查找函数
         zone_id=$(find_zone_id "$subdomain") 
         [[ -z $zone_id ]] && { warn "未找到合适的 Zone，回退手动添加"; return 1; }
     fi
 
-    # 提取主机记录 (e.g., test.example.com -> test)
     local record_name="${subdomain%.*}" 
     
-    # 检查现有记录
     local get_resp=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records?type=A&name=$subdomain" \
         -H "Authorization: Bearer $CF_API_TOKEN")
     local num_results=$(echo "$get_resp" | jq '.result | length')
@@ -86,12 +82,10 @@ cf_add_dns(){
         local current_content=$(echo "$get_resp" | jq -r '.result[0].content')
         local current_proxied=$(echo "$get_resp" | jq -r '.result[0].proxied')
         
-        # 如果 IP 和代理状态匹配，则无需更改
         if [[ "$current_content" == "$server_ip" && "$current_proxied" == "true" ]]; then
             log "DNS 记录已存在且匹配 (橙色云)，无需更改"
             return 0
         else
-            # 更新记录 (始终开启代理，即橙色云)
             local resp=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records/$record_id" \
                 -H "Authorization: Bearer $CF_API_TOKEN" \
                 -H "Content-Type: application/json" \
@@ -111,7 +105,6 @@ cf_add_dns(){
             fi
         fi
     else
-        # 添加新记录 (始终开启代理，即橙色云)
         local resp=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records" \
             -H "Authorization: Bearer $CF_API_TOKEN" \
             -H "Content-Type: application/json" \
@@ -188,7 +181,7 @@ stop_frps(){
     read -rp "按回车返回菜单..."
 }
 
-# --- 核心修复：frps安装/更新，使用系统路径和绝对日志路径 ---
+# --- 核心修复：frps安装/更新，使用 .ini 格式 ---
 install_frps(){
     log "开始安装/更新 frps ..."
     [[ $EUID -eq 0 ]] || err "请使用 root 运行"
@@ -198,44 +191,45 @@ install_frps(){
     ARCH=$(get_arch)
     URL="https://github.com/fatedier/frp/releases/download/v${VER}/frp_${VER}_linux_${ARCH}.tar.gz"
 
-    # 检查版本和安装可执行文件到 /usr/local/bin
     if [[ -x $BIN_PATH ]] && $BIN_PATH --version 2>&1 | grep -q "$VER"; then
         log "frps v$VER 已安装，跳过下载"
     else
         log "下载 frp v$VER ..."
         wget -qO- "$URL" | tar -xz --strip-components=1 -C /tmp
-        install -Dm755 /tmp/frps "$BIN_PATH" # 安装到 /usr/local/bin
+        install -Dm755 /tmp/frps "$BIN_PATH"
         rm -rf /tmp/frp*
     fi
 
-    # 配置目录和配置文件到 /etc/frp
     mkdir -p "$CONF_DIR"
-    # 确保日志文件路径可写（通常 /var/log 可写）
     touch "$LOG_FILE"
     
     if [[ ! -f $CONF_PATH ]]; then
         TOKEN=$(openssl rand -hex 16)
-        # 生成「模板化」配置，日志路径改为绝对路径
+        # 生成 .ini 格式配置模板
         cat > "$CONF_PATH" <<EOF
-bindPort = 7000
-auth.token = "__TOKEN_PLACEHOLDER__"
-vhostHTTPSPort = 8443
-[log]
-to = "$LOG_FILE" # <--- 核心修复：使用绝对路径 /var/log/frps.log
-level = "info"
-[[proxies]]
-name = "auth-https"
+[common]
+bind_port = 7000
+token = "__TOKEN_PLACEHOLDER__"
+vhost_https_port = 8443
+log_file = "$LOG_FILE" # <--- INI 格式兼容
+log_level = info
+
+[auth-https]
 type = https
-localIP = "localhost"
-localPort = 8080
-customDomains = ["__DOMAIN_PLACEHOLDER__"]
+local_ip = 127.0.0.1
+local_port = 8080
+custom_domains = __DOMAIN_PLACEHOLDER__
 EOF
-        # 把真实 token 替换占位符
+        # 将 TOML 字段替换为 INI 字段 (虽然内容是 INI，但 TOML/INI 字段有差异)
         sed -i "s/__TOKEN_PLACEHOLDER__/$TOKEN/g" "$CONF_PATH"
-        log "已生成「模板化」配置文件，Token：$TOKEN"
+        # TOML 数组格式替换为 INI 兼容格式 (无需引号，直接替换)
+        sed -i "s/customDomains = \[\"[^]]*\"\]/custom_domains = __DOMAIN_PLACEHOLDER__/" "$CONF_PATH" 2>/dev/null || true
+
+        log "已生成「模板化」配置文件 ($CONF_PATH)，Token：$TOKEN"
     else
-        TOKEN=$(awk -F'"' '/auth.token/ {print $2}' "$CONF_PATH" 2>/dev/null || openssl rand -hex 16)
-        log "使用已有配置，Token：$TOKEN"
+        # 尝试从 INI/TOML 格式中提取 Token
+        TOKEN=$(grep -E '^(token|auth\.token)' "$CONF_PATH" | awk -F'= ' '{print $2}' | tr -d '"' | head -n 1 2>/dev/null || openssl rand -hex 16)
+        log "使用已有配置 ($CONF_PATH)，Token：$TOKEN"
     fi
 
     # systemd 单元（工作目录指向配置目录 /etc/frp）
@@ -246,9 +240,7 @@ Description=frp Server
 After=network.target
 [Service]
 Type=simple
-# 核心修复：工作目录设置为配置目录，但日志已是绝对路径，更健壮
 WorkingDirectory=$CONF_DIR 
-# ExecStart 使用绝对路径
 ExecStart=$BIN_PATH -c $CONF_PATH
 Restart=always
 RestartSec=5
@@ -261,6 +253,7 @@ EOF
     log "frps 已启动并设为开机自启"
     read -rp "按回车返回菜单..."
 }
+
 set_domain(){
     log "---- 设置域名 ----"
     echo "1) 仅写入配置（手动去 Cloudflare 添加 DNS）"
@@ -275,9 +268,12 @@ set_domain(){
 manual_domain(){
     read -rp "请输入完整子域名 (如 auth.example.com): " DOMAIN
     [[ -z $DOMAIN ]] && { warn "域名为空，返回菜单"; return; }
-    CURRENT_PORT=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
+    
+    # 兼容 INI 和 TOML/TOML-like 格式的端口提取
+    CURRENT_PORT=$(grep -E '^(vhost_https_port|vhostHTTPSPort)' "$CONF_PATH" | awk -F'[ =]' '{print $NF}' | head -n 1 2>/dev/null || echo "8443")
     read -rp "请输入 HTTPS 穿透端口 [当前 $CURRENT_PORT]: " NEW_PORT
     NEW_PORT=${NEW_PORT:-$CURRENT_PORT}
+
     if ! [[ "$NEW_PORT" =~ ^[0-9]+$ ]] || [ "$NEW_PORT" -lt 1 ] || [ "$NEW_PORT" -gt 65535 ]; then
         warn "端口号 '$NEW_PORT' 无效，必须是 1 到 65535 之间的数字。"
         read -rp "按回车返回菜单..."
@@ -288,8 +284,12 @@ manual_domain(){
         read -rp "按回车返回菜单..."
         return
     fi
-    sed -i "s/^vhostHTTPSPort.*/vhostHTTPSPort = $NEW_PORT/" "$CONF_PATH"
-    sed -i "s|customDomains = \[[^]]*\]|customDomains = [\"$DOMAIN\"]|" "$CONF_PATH" 2>/dev/null || true
+    
+    # 修复：同时替换 INI 格式字段和端口值
+    sed -i "s/^\(vhost_https_port\|vhostHTTPSPort\).*/vhost_https_port = $NEW_PORT/" "$CONF_PATH"
+    # 修复：替换 INI 格式的 custom_domains 字段
+    sed -i "s/custom_domains = .*/custom_domains = $DOMAIN/" "$CONF_PATH" 2>/dev/null || true
+    
     systemctl restart frps
     log "域名已设为 $DOMAIN，端口已设为 $NEW_PORT"
     log "请手动到 Cloudflare 控制台添加 A 记录并开启橙色云"
@@ -301,11 +301,12 @@ auto_domain(){
     if [[ -z "${CF_API_TOKEN:-}" ]]; then
         read -rp "请输入 Cloudflare API Token（需 Zone:DNS:Edit 权限）: " CF_API_TOKEN
     fi
-    read -rp "请输入 Cloudflare Zone ID（可选，按回车自动获取）: " ZONE_ID # 提供可选 Zone ID 输入
+    read -rp "请输入 Cloudflare Zone ID（可选，按回车自动获取）: " ZONE_ID
     
-    CURRENT_PORT=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
+    CURRENT_PORT=$(grep -E '^(vhost_https_port|vhostHTTPSPort)' "$CONF_PATH" | awk -F'[ =]' '{print $NF}' | head -n 1 2>/dev/null || echo "8443")
     read -rp "请输入 HTTPS 穿透端口 [当前 $CURRENT_PORT]: " NEW_PORT
     NEW_PORT=${NEW_PORT:-$CURRENT_PORT}
+    
     if ! [[ "$NEW_PORT" =~ ^[0-9]+$ ]] || [ "$NEW_PORT" -lt 1 ] || [ "$NEW_PORT" -gt 65535 ]; then
         warn "端口号 '$NEW_PORT' 无效，必须是 1 到 65535 之间的数字。"
         read -rp "按回车返回菜单..."
@@ -316,10 +317,11 @@ auto_domain(){
         read -rp "按回车返回菜单..."
         return
     fi
-    # 先写入配置
-    sed -i "s/^vhostHTTPSPort.*/vhostHTTPSPort = $NEW_PORT/" "$CONF_PATH"
-    sed -i "s|customDomains = \[[^]]*\]|customDomains = [\"$DOMAIN\"]|" "$CONF_PATH" 2>/dev/null || true
-    # 尝试自动添加 DNS
+    
+    # 先写入配置 (INI 格式)
+    sed -i "s/^\(vhost_https_port\|vhostHTTPSPort\).*/vhost_https_port = $NEW_PORT/" "$CONF_PATH"
+    sed -i "s/custom_domains = .*/custom_domains = $DOMAIN/" "$CONF_PATH" 2>/dev/null || true
+
     if cf_add_dns "$DOMAIN"; then
         log "配置已生效"
     else
@@ -331,27 +333,36 @@ auto_domain(){
 }
 gen_tmpl(){
     SERVER_IP=$(curl -s ifconfig.me)
-    DOMAIN=$(awk -F'"' '/customDomains/ {print $2}' "$CONF_PATH" 2>/dev/null || echo "auth.yourdomain.com")
+    # 修复：从 INI/TOML 配置中提取域名和 Token
+    DOMAIN=$(grep 'custom_domains' "$CONF_PATH" | awk -F'= ' '{print $2}' | tr -d '"' | head -n 1 2>/dev/null || echo "auth.yourdomain.com")
+    TOKEN=$(grep -E '^(token|auth\.token)' "$CONF_PATH" | awk -F'= ' '{print $2}' | tr -d '"' | head -n 1 2>/dev/null)
+    
     cat > "$CLIENT_TMPL" <<EOF
 # 客户端模板（复制到内网机器使用）
-serverAddr = "$SERVER_IP"
-serverPort = 7000
-auth.token = $(awk -F'"' '/auth.token/ {print $2}' "$CONF_PATH")
-[[proxies]]
-name = "auth-https"
+[common]
+server_addr = $SERVER_IP
+server_port = 7000
+token = $TOKEN
+
+[auth-https]
 type = https
-localIP = "127.0.0.1"
-localPort = 8080
-customDomains = ["$DOMAIN"]
+local_ip = 127.0.0.1
+local_port = 8080
+custom_domains = $DOMAIN
 EOF
     log "模板已保存：$CLIENT_TMPL (位于当前目录)"
     read -rp "按回车返回菜单..."
 }
 show_status(){
     systemctl is-active frps && log "frps 正在运行" || warn "frps 未运行"
-    echo "Token: $(awk -F'"' '/auth.token/ {print $2}' "$CONF_PATH" 2>/dev/null || echo '未找到')"
-    local domain=$(awk -F'"' '/customDomains/ {print $2}' "$CONF_PATH" 2>/dev/null)
-    local port=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
+    # 修复：从 INI/TOML 配置中提取 Token
+    TOKEN=$(grep -E '^(token|auth\.token)' "$CONF_PATH" | awk -F'= ' '{print $2}' | tr -d '"' | head -n 1 2>/dev/null || echo '未找到')
+    echo "Token: $TOKEN"
+    
+    # 修复：从 INI/TOML 配置中提取域名和端口
+    local domain=$(grep 'custom_domains' "$CONF_PATH" | awk -F'= ' '{print $2}' | tr -d '"' | head -n 1 2>/dev/null)
+    local port=$(grep -E '^(vhost_https_port|vhostHTTPSPort)' "$CONF_PATH" | awk -F'[ =]' '{print $NF}' | head -n 1 2>/dev/null || echo "8443")
+    
     local access="https://$(curl -s ifconfig.me):$port"
     if [[ -n $domain ]]; then
         if [[ $port == 443 ]]; then
@@ -373,7 +384,7 @@ uninstall(){
     systemctl disable frps.service 2>/dev/null
     rm -f /etc/systemd/system/frps.service
     rm -f "$BIN_PATH" # /usr/local/bin/frps
-    rm -rf "$CONF_DIR" # /etc/frp 及其内容
+    rm -rf "$CONF_DIR" # /etc/frp 及其内容 (包括 frps.ini)
     rm -f "$LOG_FILE" # /var/log/frps.log
     systemctl daemon-reload
     log "frps 已卸载"
