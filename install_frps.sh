@@ -32,7 +32,7 @@ install_deps(){
 }
 
 get_latest_ver(){
-    curl -s https://api.github.com/repos/fatedier/frp/releases/latest |
+    curl -s https://api.github.com/repos/fatedier/frp/releases/latest  |
     grep -oP '"tag_name": "\Kv[^"]+' | sed 's/^v//'
 }
 
@@ -172,24 +172,29 @@ install_frps(){
     fi
 
     mkdir -p "$(dirname "$CONF_PATH")"
-    if [[ ! -f $CONF_PATH ]]; then
-        TOKEN=$(openssl rand -hex 16)
-        # 服务端配置：无 [[proxies]]
-        cat > "$CONF_PATH" <<EOF
+    # 若配置被删，先重建空配置，保证后续 sed 不报错
+    [[ -f $CONF_PATH ]] || cat > "$CONF_PATH" <<EOF
 bindPort = 7000
 vhostHTTPSPort = 8443
-
 [auth]
-token = "$TOKEN"
-
+token = $(openssl rand -hex 16)
 [log]
 level = "info"
 EOF
-        log "已生成配置文件，Token：$TOKEN"
-    else
-        TOKEN=$(_get_token_from_conf)
-        log "使用已有配置，Token：$TOKEN"
-    fi
+    TOKEN=$(_get_token_from_conf)
+    log "使用已有配置，Token：$TOKEN"
+
+    cat >> "$CONF_PATH" <<'EOF'
+
+# ========== Cloudflare Full(strict) 证书预留区 ==========
+# 如需 Full(strict) 模式，请取消下面注释并填写实际路径
+# [httpsProxies]
+# plugin = "https2http"
+# pluginLocalAddr = "127.0.0.1:8080"
+# pluginCrtPath = "/root/vpro/cert.pem"   # Cloudflare Origin CA 证书
+# pluginKeyPath = "/root/vpro/key.pem"    # 对应私钥
+# =========================================================
+EOF
 
     set +e
     [[ -f /etc/systemd/system/frps.service ]] && systemctl disable --now frps.service 2>/dev/null
@@ -259,45 +264,35 @@ auto_domain(){
     read -rp "请输入完整子域名 (如 auth.example.com): " DOMAIN
     [[ -z $DOMAIN ]] && { warn "域名为空，返回菜单"; return; }
 
-    # ① 先输入 API Token
     if [[ -z "${CF_API_TOKEN:-}" ]]; then
         read -rp "请输入 Cloudflare API Token： " TOKEN
         export CF_API_TOKEN=$TOKEN
     fi
-
-    # ② 再输入 Zone ID
     read -rp "请输入该域名在 Cloudflare 的 Zone ID： " ZONE_ID
     [[ -z $ZONE_ID ]] && { warn "Zone ID 为空，回退手动添加"; manual_domain; return; }
 
-    # ③ 端口检查
     CURRENT_PORT=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
     read -rp "请输入 HTTPS 穿透端口 [当前 $CURRENT_PORT]: " NEW_PORT
     NEW_PORT=${NEW_PORT:-$CURRENT_PORT}
-    if ! [[ "$NEW_PORT" =~ ^[0-9]+$ ]] || [ "$NEW_PORT" -lt 1 ] || [ "$NEW_PORT" -gt 65535 ]]; then
-        warn "端口号 '$NEW_PORT' 无效"; read -rp "按回车返回主菜单..."; return; fi
+    if ! [[ $NEW_PORT =~ ^[0-9]+$ ]] || [ "$NEW_PORT" -lt 1 ] || [ "$NEW_PORT" -gt 65535 ]; then
+        warn "端口号 '$NEW_PORT' 无效"
+        read -rp "按回车返回主菜单..."
+        return
+    fi
     set +e
     if ss -ltn | awk '{print $4}' | grep -q ":${NEW_PORT}$"; then
         warn "端口 $NEW_PORT 已被占用"; read -rp "按回车返回主菜单..."; return; fi
     set -e
 
-    # ④ 写配置（端口 + 域名）
+    # 端口
     sed -i "s/^vhostHTTPSPort.*/vhostHTTPSPort = $NEW_PORT/" "$CONF_PATH"
-    sed -i 's|customDomains = \["[^"]*"\]|customDomains = ["'"$DOMAIN"'"]|g' "$CONF_PATH"
-
-    # ⑤ 兜底：若配置里无 [[proxies]] 则追加
-    if ! grep -q '^\[\[proxies\]\]' "$CONF_PATH"; then
-        cat >> "$CONF_PATH" <<EOF
-
-[[proxies]]
-name = "auth-https"
-type = "https"
-localIP = "localhost"
-localPort = 8080
-customDomains = ["$DOMAIN"]
-EOF
+    # 域名：有则替换，无则追加
+    if grep -q '^customDomains' "$CONF_PATH"; then
+        sed -i 's|customDomains = \["[^"]*"\]|customDomains = ["'"$DOMAIN"'"]|g' "$CONF_PATH"
+    else
+        echo "customDomains = [\"$DOMAIN\"]" >> "$CONF_PATH"
     fi
 
-    # ⑥ 调用 API 添加/更新 DNS
     cf_add_dns "$DOMAIN" "$ZONE_ID"
     systemctl restart frps.service
     read -rp "按回车返回主菜单..."
@@ -307,7 +302,6 @@ gen_tmpl(){
     SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
     DOMAIN=$(awk -F'"' '/customDomains/ {print $2}' "$CONF_PATH" 2>/dev/null || echo "auth.yourdomain.com")
     TOKEN=$(_get_token_from_conf)
-    # >>> 客户端配置：自动带 https 协议头 <<<
     cat > "$CLIENT_TMPL" <<EOF
 # 客户端模板（TOML 格式，复制到内网机器使用）
 serverAddr = "$SERVER_IP"
