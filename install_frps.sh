@@ -2,22 +2,21 @@
 set -euo pipefail
 
 ########################### Systemd & TUI 变量 ###################################
-AUTH_SERVICE="auth_server.service"
 FRP_SERVICE="frps.service"
 HEIGHT=20
 WIDTH=70
 CHOICE_HEIGHT=12
-TITLE="🚀 统一服务器管理菜单"
+TITLE="🚀 FRP Server 一键管理菜单"
 BACKTITLE="使用方向键选择，回车键确认"
 ########################### FRP 安装变量 (TOML 格式) ###################################
-# 自动设置为用户运行 'auth_manage.sh' 时所在的目录
+# 自动设置为用户运行脚本时所在的目录
 BASE_DIR="$PWD" 
 BIN_PATH="/usr/local/bin/frps" 
 CONF_DIR="/etc/frp" 
-CONF_PATH="$CONF_DIR/frps.toml" # TOML 格式
+CONF_PATH="$CONF_DIR/frps.toml" # 确认使用 TOML 格式
 LOG_FILE="/var/log/frps.log" 
 CLIENT_TMPL="$BASE_DIR/frpc.toml" # 客户端使用 TOML
-CLIENT_INI="$BASE_DIR/frpc.ini" # 为兼容旧 frpc，保留 INI 模板生成
+CLIENT_INI="$BASE_DIR/frpc.ini" # 兼容 INI 模板生成
 
 ########################### 工具函数 ###################################
 log() { echo "[INFO] $*"; }
@@ -29,7 +28,7 @@ command_exists(){ command -v "$1" >/dev/null 2>&1; }
 # 检查 whiptail 依赖
 check_whiptail() {
     if ! command_exists whiptail; then
-        echo "whiptail 未安装。正在尝试安装..."
+        whiptail --msgbox "whiptail 未安装。正在尝试安装依赖..." $HEIGHT $WIDTH
         install_deps
         if ! command_exists whiptail; then
             err "whiptail 安装失败。请手动安装 (sudo apt install whiptail 或 sudo yum install newt)"
@@ -60,6 +59,7 @@ get_arch(){
     esac
 }
 ########################### Cloudflare API ##############################
+# 使用 DNS 查找主 Zone ID
 find_zone_id(){
     local subdomain=$1
     local parts=(${subdomain//\./ })
@@ -144,36 +144,26 @@ cf_add_dns(){
         fi
     fi
 }
-########################### TUI 辅助执行函数 ##############################
+########################### Systemd 管理函数 ##############################
 
-execute_command() {
+# 封装 Systemd 命令，在 TUI 内显示结果
+execute_frps_command() {
     local cmd_type=$1
-    local service_name=$2
     local tmp_output=$(mktemp)
     
     (
-        echo "--- 正在执行 [$cmd_type] $service_name ---"
+        echo "--- 正在执行 [$cmd_type] frps.service ---"
         case $cmd_type in
             "status")
-                sudo systemctl status "$service_name" --no-pager 2>&1 | cat
+                sudo systemctl status "$FRP_SERVICE" --no-pager 2>&1 | cat
                 ;;
             "log")
-                sudo journalctl -u "$service_name" -f
+                sudo journalctl -u "$FRP_SERVICE" -f
                 return 
                 ;;
-            "restart_all")
-                log "正在同时重启 Auth 和 FRP 服务..."
-                sudo systemctl restart $AUTH_SERVICE 2>&1
-                sudo systemctl restart $FRP_SERVICE 2>&1
-                sleep 2
-                log "重启完成。"
-                ;;
-            "status_all")
-                log "正在查询两个服务的状态..."
-                sudo systemctl status $AUTH_SERVICE $FRP_SERVICE --no-pager 2>&1 | cat
-                ;;
             *)
-                sudo systemctl "$cmd_type" "$service_name" 2>&1
+                # 执行 Systemd 命令 (start, stop, restart)
+                sudo systemctl "$cmd_type" "$FRP_SERVICE" 2>&1
                 ;;
         esac
         echo "----------------------------"
@@ -225,7 +215,7 @@ log.level = "info"
 [[proxies]]
 name = "auth-https"
 type = "https"
-localIP = "127.0.0.1" # 服务端配置使用 127.0.0.1 是标准做法
+localIP = "127.0.0.1"
 localPort = 8080
 customDomains = ["auth.yourdomain.com"]
 EOF
@@ -236,8 +226,9 @@ EOF
         log "使用已有 TOML 配置 ($CONF_PATH)，Token：$TOKEN"
     fi
 
-    [[ -f /etc/systemd/system/frps.service ]] && systemctl disable --now frps.service 2>/dev/null
-    cat > /etc/systemd/system/frps.service <<EOF
+    # Systemd 单元
+    [[ -f /etc/systemd/system/$FRP_SERVICE ]] && systemctl disable --now $FRP_SERVICE 2>/dev/null
+    cat > /etc/systemd/system/$FRP_SERVICE <<EOF
 [Unit]
 Description=frp Server
 After=network.target
@@ -252,7 +243,7 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable --now frps.service
+    systemctl enable --now $FRP_SERVICE
     log "frps 已启动并设为开机自启"
     
     whiptail --msgbox "FRP Server v${VER} 安装/更新完成并已启动。" $HEIGHT $WIDTH
@@ -278,7 +269,7 @@ manual_domain(){
     sed -i "s/^\(vhostHTTPSPort\).*/vhostHTTPSPort = $NEW_PORT/" "$CONF_PATH"
     sed -i "/^customDomains\s*=/c\customDomains = [\"$DOMAIN\"]" "$CONF_PATH"
     
-    systemctl restart frps
+    systemctl restart $FRP_SERVICE
     
     whiptail --msgbox "域名已设为 ${DOMAIN}，端口已设为 ${NEW_PORT}。\n请手动到 Cloudflare 控制台添加 A 记录并开启橙色云。" $HEIGHT $WIDTH
 }
@@ -315,7 +306,7 @@ auto_domain(){
     else
         msg_box="Cloudflare DNS 自动添加失败！\n请手动到 Cloudflare 控制台添加 A 记录并开启橙色云。"
     fi
-    systemctl restart frps
+    systemctl restart $FRP_SERVICE
     
     whiptail --msgbox "$msg_box" $HEIGHT $WIDTH
 }
@@ -327,7 +318,7 @@ gen_tmpl(){
     
     mkdir -p "$BASE_DIR"
 
-    # 生成 TOML 格式客户端模板 (重点修正)
+    # 生成 TOML 格式客户端模板 (localIP 已修正为 localhost)
     cat > "$CLIENT_TMPL" <<EOF
 # 客户端模板（TOML 格式，复制到内网机器使用）
 serverAddr = "$SERVER_IP"
@@ -369,7 +360,7 @@ show_config_status(){
     local status_output=$(mktemp)
     
     (
-        systemctl is-active frps >/dev/null 2>&1 && log "frps 正在运行" || warn "frps 未运行"
+        systemctl is-active $FRP_SERVICE >/dev/null 2>&1 && log "frps 正在运行" || warn "frps 未运行"
         TOKEN=$(grep -E '^token\s*=\s*"?([^"]+)"?' "$CONF_PATH" | sed -E 's/token\s*=\s*"?([^"]+)"?/\1/' | head -n 1 2>/dev/null || echo '未找到')
         echo "Token: $TOKEN"
         
@@ -400,9 +391,9 @@ uninstall(){
         return
     fi
     
-    systemctl stop frps.service 2>/dev/null
-    systemctl disable frps.service 2>/dev/null
-    rm -f /etc/systemd/system/frps.service
+    systemctl stop $FRP_SERVICE 2>/dev/null
+    systemctl disable $FRP_SERVICE 2>/dev/null
+    rm -f /etc/systemd/system/$FRP_SERVICE
     rm -f "$BIN_PATH"
     rm -f "$CONF_DIR/frps.ini.bak" 2>/dev/null 
     rm -f "$CONF_PATH"
@@ -412,52 +403,40 @@ uninstall(){
     
     whiptail --msgbox "FRP Server 已完全卸载。" $HEIGHT $WIDTH
 }
-########################### TUI 菜单函数 ##############################
+########################### 主菜单函数 #####################################
 
-# 子菜单 (Systemd 操作)
-submenu() {
-    SERVICE=$1
-    if [ "$SERVICE" == "$AUTH_SERVICE" ]; then
-        SUB_TITLE="VPro Auth Server (Go程序) 管理"
-    else
-        SUB_TITLE="FRP Server (frps) 管理"
-    fi
+main_menu() {
+    check_root
+    check_whiptail
 
-    CHOICE=$(whiptail --title "$SUB_TITLE" --menu "请选择操作:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-        "start" "启动服务" \
-        "stop" "停止服务" \
-        "restart" "重启服务" \
-        "status" "查看详细状态" \
-        "log" "查看实时日志 (Ctrl+C 退出)" \
-        3>&1 1>&2 2>&3)
-
-    if [ $? -eq 0 ]; then
-        execute_command "$CHOICE" "$SERVICE"
-    fi
-}
-
-# FRP 配置菜单 (安装/域名/卸载等)
-frps_config_menu() {
-    clear
-    
     while true; do
-        CHOICE=$(whiptail --title "FRP 配置与安装菜单" --menu "请选择 FRP 相关的配置操作:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+        clear
+        # 动态获取 frps 状态
+        FRP_STATUS=$(sudo systemctl is-active $FRP_SERVICE 2>/dev/null || echo "inactive")
+        
+        MENU_TEXT="FRP Server 状态: $FRP_STATUS\n\n请选择操作类别:"
+
+        CHOICE=$(whiptail --title "$TITLE" --backtitle "$BACKTITLE" --menu "$MENU_TEXT" $HEIGHT $WIDTH $CHOICE_HEIGHT \
             "1" "安装/更新 frps (核心程序)" \
             "2" "设置域名和穿透端口" \
             "3" "生成客户端 frpc 模板" \
-            "4" "查看当前配置状态" \
-            "5" "卸载 frps (清理文件)" \
-            "r" "返回主菜单" \
+            "4" "查看当前配置和运行状态" \
+            "---" "--- Systemd 操作 ---" \
+            "5" "启动 frps" \
+            "6" "停止 frps" \
+            "7" "重启 frps" \
+            "8" "查看实时日志 (Ctrl+C 退出)" \
+            "9" "卸载 frps (清理文件)" \
+            "0" "退出管理菜单" \
             3>&1 1>&2 2>&3)
-            
-        if [ $? -ne 0 ] || [ "$CHOICE" == "r" ]; then
-            return
+
+        if [ $? -ne 0 ] || [ "$CHOICE" == "0" ]; then
+            echo "退出管理菜单。再见!"
+            exit 0
         fi
-        
+
         case $CHOICE in
-            1) 
-                install_frps
-                ;;
+            1) install_frps ;;
             2) 
                 MODE_CHOICE=$(whiptail --title "域名配置模式" --menu "请选择域名配置模式:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
                     "1" "仅写入配置（手动添加 DNS）" \
@@ -472,67 +451,18 @@ frps_config_menu() {
                     fi
                 fi
                 ;;
-            3) 
-                gen_tmpl
-                ;;
-            4) 
-                show_config_status
-                ;;
-            5) 
-                uninstall
-                ;;
-            *)
-                whiptail --msgbox "无效选项: $CHOICE" $HEIGHT $WIDTH
-                ;;
+            3) gen_tmpl ;;
+            4) show_config_status ;;
+            5) execute_frps_command "start" ;;
+            6) execute_frps_command "stop" ;;
+            7) execute_frps_command "restart" ;;
+            8) execute_frps_command "log" ;;
+            9) uninstall ;;
+            *) warn "无效选择，请重试";;
         esac
     done
 }
 
 
-########################### 入口 & 主循环 #####################################
-check_root
-check_whiptail
-
-while true; do
-    clear
-    # 动态获取并设置状态标签
-    AUTH_STATUS=$(sudo systemctl is-active $AUTH_SERVICE 2>/dev/null || echo "inactive")
-    FRP_STATUS=$(sudo systemctl is-active $FRP_SERVICE 2>/dev/null || echo "inactive")
-    
-    MENU_TEXT="Auth状态: $AUTH_STATUS | FRP状态: $FRP_STATUS\n\n请选择操作类别:"
-
-    CHOICE=$(whiptail --title "$TITLE" --backtitle "$BACKTITLE" --menu "$MENU_TEXT" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-        "1" "管理 VPro Auth Server (Systemd)" \
-        "2" "管理 FRP Server (Systemd)" \
-        "3" "同时重启所有服务" \
-        "4" "查看所有服务状态" \
-        "5" "FRP 安装、配置、卸载" \
-        "0" "退出管理菜单" \
-        3>&1 1>&2 2>&3)
-
-    if [ $? -ne 0 ] || [ "$CHOICE" == "0" ]; then
-        echo "退出管理菜单。再见!"
-        exit 0
-    fi
-
-    case $CHOICE in
-        1)
-            submenu $AUTH_SERVICE
-            ;;
-        2)
-            submenu $FRP_SERVICE
-            ;;
-        3)
-            execute_command "restart_all"
-            ;;
-        4)
-            execute_command "status_all"
-            ;;
-        5)
-            frps_config_menu
-            ;;
-        *)
-            warn "无效选择，请重试";
-            ;;
-    esac
-done
+########################### 入口 #####################################
+main_menu
