@@ -35,37 +35,59 @@ get_arch(){
     esac
 }
 ########################### Cloudflare API ##############################
+find_zone_id(){
+    local subdomain=$1
+    local parts=(${subdomain//\./ })
+    local len=${#parts[@]}
+    for ((i=$len; i>=2; i--)); do
+        local try_domain=$(IFS='.'; echo "${parts[*]: -i}")
+        local zone_id=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=$try_domain" | jq -r '.result[0].id // empty')
+        if [[ -n $zone_id ]]; then
+            echo "$zone_id"
+            return 0
+        fi
+    done
+    return 1
+}
 cf_add_dns(){
     local subdomain=$1
-    local domain=${subdomain#*.} # 主域名
-    local record_name=$subdomain # 对于 Cloudflare API，name 是完整子域名，如 frp.omail.us.kg
     local server_ip=$(curl -s ifconfig.me)
-    # 获取 Zone ID
-    local zone_id=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-        "https://api.cloudflare.com/client/v4/zones?name=$domain" | jq -r '.result[0].id // empty')
-    [[ -z $zone_id ]] && { warn "未找到 Zone，回退手动添加"; return 1; }
+    local zone_id
+    if [[ -n "${ZONE_ID:-}" ]]; then
+        zone_id=$ZONE_ID
+    else
+        zone_id=$(find_zone_id "$subdomain")
+        [[ -z $zone_id ]] && { warn "未找到合适的 Zone，回退手动添加"; return 1; }
+    fi
     # 检查现有记录
-    local existing_record=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-        "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records?type=A&name=$record_name" | jq -r '.result[0] // empty')
-    if [[ -n "$existing_record" ]]; then
-        local record_id=$(echo "$existing_record" | jq -r '.id')
-        local current_content=$(echo "$existing_record" | jq -r '.content')
-        local current_proxied=$(echo "$existing_record" | jq -r '.proxied')
-        if [[ "$current_content" == "$server_ip" && "$current_proxied" == "true" ]]; then
-            log "DNS 记录已存在且配置正确，无需修改"
+    local get_resp=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records?type=A&name=$subdomain" \
+        -H "Authorization: Bearer $CF_API_TOKEN")
+    local num_results=$(echo "$get_resp" | jq '.result | length')
+    if [[ $num_results -gt 1 ]]; then
+        warn "存在多个 A 记录，请手动管理"
+        return 1
+    elif [[ $num_results -eq 1 ]]; then
+        local record_id=$(echo "$get_resp" | jq -r '.result[0].id')
+        local current_content=$(echo "$get_resp" | jq -r '.result[0].content')
+        local current_proxied=$(echo "$get_resp" | jq -r '.result[0].proxied')
+        if [[ "$current_content" == "$server_ip" && "$current_proxied" == "false" ]]; then
+            log "DNS 记录已存在且匹配，无需更改"
             return 0
         else
             # 更新记录
-            local resp=$(curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records/$record_id" \
+            local resp=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records/$record_id" \
                 -H "Authorization: Bearer $CF_API_TOKEN" \
                 -H "Content-Type: application/json" \
                 --data "{
+                    \"type\":\"A\",
+                    \"name\":\"$subdomain\",
                     \"content\":\"$server_ip\",
                     \"ttl\":120,
-                    \"proxied\":true
+                    \"proxied\":false
                 }")
             if echo "$resp" | jq -e '.success' >/dev/null; then
-                log "DNS 记录已更新并开启代理"
+                log "DNS 记录已更新（DNS only 模式）"
                 return 0
             else
                 warn "API 更新失败：$(echo "$resp" | jq -r '.errors[0].message')"
@@ -79,13 +101,13 @@ cf_add_dns(){
             -H "Content-Type: application/json" \
             --data "{
                 \"type\":\"A\",
-                \"name\":\"$record_name\",
+                \"name\":\"$subdomain\",
                 \"content\":\"$server_ip\",
                 \"ttl\":120,
-                \"proxied\":true
+                \"proxied\":false
             }")
         if echo "$resp" | jq -e '.success' >/dev/null; then
-            log "DNS 记录已自动添加并开启代理"
+            log "DNS 记录已自动添加（DNS only 模式）"
             return 0
         else
             warn "API 调用失败：$(echo "$resp" | jq -r '.errors[0].message')"
@@ -174,6 +196,7 @@ bindPort = 7000
 auth.token = "__TOKEN_PLACEHOLDER__"
 vhostHTTPSPort = 8443
 [log]
+to = "./frps.log"
 level = "info"
 [[proxies]]
 name = "auth-https"
@@ -198,7 +221,6 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$BASE_DIR
-ExecStartPre=/usr/bin/touch $LOG_FILE
 ExecStart=$BIN_PATH -c $CONF_PATH
 Restart=always
 RestartSec=5
@@ -227,13 +249,11 @@ manual_domain(){
     CURRENT_PORT=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
     read -rp "请输入 HTTPS 穿透端口 [当前 $CURRENT_PORT]: " NEW_PORT
     NEW_PORT=${NEW_PORT:-$CURRENT_PORT}
-    # === 端口校验逻辑（新增/修复）
     if ! [[ "$NEW_PORT" =~ ^[0-9]+$ ]] || [ "$NEW_PORT" -lt 1 ] || [ "$NEW_PORT" -gt 65535 ]; then
         warn "端口号 '$NEW_PORT' 无效，必须是 1 到 65535 之间的数字。"
         read -rp "按回车返回菜单..."
         return
     fi
-    # ===
     if ss -ltn | awk '{print $4}' | grep -q ":${NEW_PORT}$"; then
         warn "端口 $NEW_PORT 已被占用，请更换或先停用占用服务"
         read -rp "按回车返回菜单..."
@@ -243,27 +263,24 @@ manual_domain(){
     sed -i "s|customDomains = \[[^]]*\]|customDomains = [\"$DOMAIN\"]|" "$CONF_PATH" 2>/dev/null || true
     systemctl restart frps
     log "域名已设为 $DOMAIN，端口已设为 $NEW_PORT"
-    log "请手动到 Cloudflare 控制台添加 A 记录并开启橙色云"
+    log "请手动到 Cloudflare 控制台添加 A 记录（DNS only, 灰色云，不要开启代理）"
     read -rp "按回车返回菜单..."
 }
 auto_domain(){
     read -rp "请输入完整子域名 (如 auth.example.com): " DOMAIN
     [[ -z $DOMAIN ]] && { warn "域名为空，返回菜单"; return; }
-    # 读取或交互获取 Token
     if [[ -z "${CF_API_TOKEN:-}" ]]; then
-        read -rp "请输入 Cloudflare API Token（需 Zone:DNS:Edit 权限）: " TOKEN
-        export CF_API_TOKEN=$TOKEN
+        read -rp "请输入 Cloudflare API Token（需 Zone:DNS:Edit 权限）: " CF_API_TOKEN
     fi
+    read -rp "请输入 Cloudflare Zone ID（可选，按回车自动获取）: " ZONE_ID
     CURRENT_PORT=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
     read -rp "请输入 HTTPS 穿透端口 [当前 $CURRENT_PORT]: " NEW_PORT
     NEW_PORT=${NEW_PORT:-$CURRENT_PORT}
-    # === 端口校验逻辑（新增/修复）
     if ! [[ "$NEW_PORT" =~ ^[0-9]+$ ]] || [ "$NEW_PORT" -lt 1 ] || [ "$NEW_PORT" -gt 65535 ]; then
         warn "端口号 '$NEW_PORT' 无效，必须是 1 到 65535 之间的数字。"
         read -rp "按回车返回菜单..."
         return
     fi
-    # ===
     if ss -ltn | awk '{print $4}' | grep -q ":${NEW_PORT}$"; then
         warn "端口 $NEW_PORT 已被占用，请更换或先停用占用服务"
         read -rp "按回车返回菜单..."
@@ -277,7 +294,7 @@ auto_domain(){
         log "配置已生效"
     else
         warn "自动添加失败，已回退为「仅写入配置」"
-        log "请手动到 Cloudflare 控制台添加 A 记录并开启橙色云"
+        log "请手动到 Cloudflare 控制台添加 A 记录（DNS only, 灰色云，不要开启代理）"
     fi
     systemctl restart frps
     read -rp "按回车返回菜单..."
@@ -303,7 +320,17 @@ EOF
 show_status(){
     systemctl is-active frps && log "frps 正在运行" || warn "frps 未运行"
     echo "Token: $(awk -F'"' '/auth.token/ {print $2}' "$CONF_PATH" 2>/dev/null || echo '未找到')"
-    echo "访问地址: $(awk -F'"' '/customDomains/ {print $2}' "$CONF_PATH" 2>/dev/null || echo "https://$(curl -s ifconfig.me):8443")"
+    local domain=$(awk -F'"' '/customDomains/ {print $2}' "$CONF_PATH" 2>/dev/null)
+    local port=$(awk -F'=' '/vhostHTTPSPort/ {gsub(/ /,"",$2); print $2}' "$CONF_PATH" 2>/dev/null || echo "8443")
+    local access="https://$(curl -s ifconfig.me):$port"
+    if [[ -n $domain ]]; then
+        if [[ $port == 443 ]]; then
+            access="https://$domain"
+        else
+            access="https://$domain:$port"
+        fi
+    fi
+    echo "访问地址: $access"
     read -rp "按回车返回菜单..."
 }
 uninstall(){
