@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html class="h-full transition-all duration-500 dark" data-theme="dark" lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>Cloudflare IP Tester Pro - Final Edition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+SC:wght@400;900&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg-overlay: rgba(0,0,0,0.4); }
+    [data-theme='light'] { --bg-overlay: rgba(255,255,255,0.1); }
+    body.force-bold, body.force-bold * { font-weight: 900 !important; }
+    .font-default { font-family: 'Noto Sans SC', sans-serif; }
+    .font-jetbrains { font-family: 'JetBrains Mono', monospace; }
+    #bgOverlay { background-color: var(--bg-overlay); transition: background 0.5s; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.1); }
+    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #fb923c; }
+    #logOutput { scroll-behavior: smooth; word-break: break-all; white-space: pre-wrap; }
+    .btn-disabled { opacity: 0.4; pointer-events: none; filter: grayscale(1); }
+    .main-container { height: auto; min-height: calc(100vh - 4rem); }
+    @media (min-width: 1024px) {
+        .main-container { height: calc(100vh - 4rem); max-height: calc(100vh - 4rem); overflow: hidden; }
+    }
+    @media (max-width: 1024px) {
+        #logOutput { min-height: 380px !important; height: 380px !important; max-height: 380px !important; overflow-y: scroll !important; display: block !important; background: rgba(0, 0, 0, 0.3) !important; }
+        .lg\:col-span-8 { height: auto !important; }
+    }
+    .dark label { color: #f8fafc !important; display: flex; align-items: center; margin-bottom: 6px; font-weight: 800; border-left: none !important; padding-left: 0 !important; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
+    [data-theme='light'] label { border-left: none !important; padding-left: 0 !important; color: #1e293b !important; font-weight: 700; display: flex; align-items: center; margin-bottom: 6px; }
+    .grid.grid-cols-2 > div p:first-child { font-size: 1.1rem !important; font-weight: 900 !important; letter-spacing: 0.05em !important; margin-bottom: 4px !important; }
+    .grid.grid-cols-2 > div:nth-child(1) p:first-child { color: #3b82f6 !important; }
+    .grid.grid-cols-2 > div:nth-child(2) p:first-child { color: #10b981 !important; }
+    .grid.grid-cols-2 > div:nth-child(3) p:first-child { color: #6366f1 !important; }
+    .grid.grid-cols-2 > div:nth-child(4) p:first-child { color: #f59e0b !important; }
+    input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 1.25rem !important; height: 1.25rem !important; background-color: transparent !important; border: 2px solid #f97316 !important; border-radius: 4px !important; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; position: relative; transition: all 0.2s; flex-shrink: 0; }
+    input[type="checkbox"]:checked { background-color: #f97316 !important; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E") !important; background-size: 80% 80% !important; background-position: center !important; background-repeat: no-repeat !important; }
+    input[type="checkbox"]::after, input[type="checkbox"]::before { display: none !important; content: none !important; }
+    
+    .tg-eye-btn { color: #4b5563; transition: color .2s; }
+    .tg-eye-btn:hover { color: #f97316; }
+    .dark .tg-eye-btn { color: #d1d5db; }
+    .dark .tg-eye-btn:hover { color: #fb923c; }
+    .tg-eye-btn svg { width: 1rem; height: 1rem; stroke: currentColor; }
+    
+    .unified-scroll-wrapper { overflow: hidden; white-space: nowrap; mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent); -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent); }
+    .unified-scroll-inner { display: inline-block; animation: scroll-left 20s linear infinite; padding-left: 100%; }
+    .unified-scroll-inner:hover { animation-play-state: paused; }
+    @keyframes scroll-left { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
+    
+    .secret-input { -webkit-text-security: disc; text-security: disc; }
+    .secret-input.revealed { -webkit-text-security: none; text-security: none; }
+  </style>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+</head>
+<body class="min-h-screen flex flex-col text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-950 transition-colors duration-500 font-default overflow-y-auto lg:overflow-hidden force-bold">
+  <video autoplay class="hidden" id="videoBg" loop muted style="filter: blur(10px);"></video>
+  <div class="fixed inset-0 -z-20 bg-cover bg-center transition-all duration-1000" id="customBg" style="filter: blur(10px);"></div>
+  <div class="fixed inset-0 -z-10" id="bgOverlay" style="background-color: rgba(0, 0, 0, 0.4);"></div>
+
+  <header class="h-16 flex-shrink-0 bg-white/70 dark:bg-gray-900/70 border-b dark:border-gray-800 flex items-center px-4 md:px-6 justify-between backdrop-blur-md z-10">
+    <div class="flex items-center space-x-3">
+      <div class="p-2.5 bg-orange-600 rounded-2xl shadow-lg rotate-3 flex-shrink-0">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="zap" class="lucide lucide-zap w-6 h-6 text-white">
+          <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path>
+        </svg>
+      </div>
+      <h1 class="hidden md:block font-black text-xl tracking-tighter leading-none whitespace-nowrap">CF IP Tester <span class="text-orange-500 italic">PRO</span></h1>
+    </div>
+    
+    <div class="flex items-center space-x-1 md:space-x-2 flex-shrink-1 min-w-0">
+      <div id="unified-info-container" class="hidden items-center mr-1 md:mr-3 max-w-[100px] sm:max-w-[150px] md:max-w-[240px] unified-scroll-wrapper">
+        <span id="unified-info-text" class="unified-scroll-inner text-xs"></span>
+      </div>
+      
+      <button class="h-9 w-9 md:w-auto md:px-3 flex-shrink-0 rounded-xl bg-gray-200/50 dark:bg-gray-800/50 border border-gray-300/50 dark:border-gray-700 hover:scale-110 transition-all flex items-center justify-center gap-1 shadow-sm" onclick="toggleTheme()">
+        <span class="tg-star text-sm">⭐️</span>
+        <svg id="themeIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      </button>
+      
+      <button class="h-9 w-9 md:w-auto md:px-4 flex-shrink-0 rounded-xl bg-gray-200/50 dark:bg-gray-800/50 border border-gray-300/50 dark:border-gray-700 hover:scale-110 transition-all flex items-center justify-center shadow-sm" onclick="openModal('bgSettings')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.688-1.688h1.91c3.141 0 5.625-2.484 5.625-5.625C22 5.625 17.5 2 12 2z"></path><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle></svg>
+      </button>
+      
+      <button class="h-9 w-9 md:w-auto md:px-4 flex-shrink-0 rounded-xl bg-gray-200/50 dark:bg-gray-800/50 border border-gray-300/50 dark:border-gray-700 hover:scale-110 transition-all flex items-center justify-center shadow-sm" onclick="openModal('fontSettings')">
+        <span class="text-base font-bold leading-none">T</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="main-container p-4 lg:p-6">
+    <div class="max-w-[1600px] mx-auto h-full grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+      <aside class="lg:col-span-4 flex flex-col bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl overflow-hidden h-fit lg:h-full">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 bg-gray-50/50 dark:bg-black/20">
+          <h2 class="font-black text-xs uppercase tracking-[0.2em] flex items-center text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="sliders-horizontal" class="lucide lucide-sliders-horizontal w-4 h-4 mr-2 text-orange-500">
+              <path d="M10 5H3"></path><path d="M12 19H3"></path><path d="M14 3v4"></path><path d="M16 17v4"></path><path d="M21 12h-9"></path><path d="M21 19h-5"></path><path d="M21 5h-7"></path><path d="M8 10v4"></path><path d="M8 12H3"></path>
+            </svg>
+            参数配置
+          </h2>
+        </div>
+        <div class="flex-1 lg:overflow-y-auto p-6 space-y-5">
+          <form class="space-y-4" id="configForm">
+            <div class="grid grid-cols-2 gap-4">
+              <div class="space-y-1">
+                <label class="text-[14px] font-black text-gray-500 uppercase tracking-tighter">输入文件</label>
+                <input class="w-full bg-gray-100 dark:bg-black/40 dark:text-white border-2 border-transparent focus:border-orange-500/50 rounded-xl px-4 py-2 text-sm font-bold outline-none transition-all" name="file" type="text" value="ip.txt">
+              </div>
+              <div class="space-y-1">
+                <label class="text-[14px] font-black text-gray-500 uppercase tracking-tighter">输出文件</label>
+                <input class="w-full bg-gray-100 dark:bg-black/40 dark:text-white border-2 border-transparent focus:border-orange-500/50 rounded-xl px-4 py-2 text-sm font-bold outline-none transition-all" name="outfile" type="text" value="ip.csv">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div class="space-y-1">
+                <label class="text-[14px] font-black text-gray-500 uppercase tracking-tighter">最大并发</label>
+                <input class="w-full bg-gray-100 dark:bg-black/40 dark:text-white border-2 border-transparent focus:border-orange-500/50 rounded-xl px-4 py-2 text-sm font-bold outline-none transition-all" name="max" type="number" value="100">
+              </div>
+              <div class="space-y-1">
+                <label class="text-[14px] font-black text-gray-500 uppercase tracking-tighter">测速协程</label>
+                <input class="w-full bg-gray-100 dark:bg-black/40 dark:text-white border-2 border-transparent focus:border-orange-500/50 rounded-xl px-4 py-2 text-sm font-bold outline-none transition-all" name="speedtest" type="number" value="5">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div class="space-y-1">
+                <label class="text-[14px] font-black text-gray-500 uppercase tracking-tighter">速度下限</label>
+                <input class="w-full bg-gray-100 dark:bg-black/40 dark:text-white border-2 border-transparent focus:border-orange-500/50 rounded-xl px-4 py-2 text-sm font-bold outline-none transition-all" name="speedlimit" step="0.1" type="number" value="0">
+              </div>
+              <div class="space-y-1">
+                <label class="text-[14px] font-black text-gray-500 uppercase tracking-tighter">测速地址</label>
+                <input class="w-full bg-gray-100 dark:bg-black/40 dark:text-white border-2 border-transparent focus:border-orange-500/50 rounded-xl px-4 py-2 text-xs font-bold font-mono outline-none transition-all" name="url" type="text" value="speed.an226.pp.ua/200mb" placeholder="speed.an226.pp.ua/200mb">
+              </div>
+            </div>
+            <div class="p-4 bg-orange-500/5 rounded-2xl border-2 border-dashed border-orange-500/10 space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <div class="space-y-1">
+                  <label class="text-[14px] text-gray-400 font-bold uppercase tracking-widest">CIDR文件</label>
+                  <input class="w-full bg-white dark:bg-gray-800 dark:text-white rounded-lg px-3 py-1.5 text-xs outline-none" name="cidrfile" type="text" value="cidr.txt">
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[14px] text-gray-400 font-bold uppercase tracking-widest">速率限制</label>
+                  <input class="w-full bg-white dark:bg-gray-800 dark:text-white rounded-lg px-3 py-1.5 text-xs outline-none" name="rate" type="number" value="200">
+                </div>
+              </div>
+              <div class="space-y-1">
+                <label class="text-[14px] text-gray-400 font-bold uppercase tracking-widest">CIDR端口</label>
+                <input class="w-full bg-white dark:bg-gray-800 dark:text-white rounded-lg px-3 py-1.5 text-xs outline-none" name="cidr-ports" type="text" value="443,8443,2053,2083,2087,2096">
+              </div>
+              <label class="flex items-center space-x-2 cursor-pointer mt-2">
+                <input type="checkbox" id="expand_cidr_check">
+                <span class="text-xs font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest select-none">扫描后测试延迟/速度(由测速协程控制, 勾选生成csv, 不勾选协程0时只生成txt)</span>
+              </label>
+            </div>
+            <div class="space-y-1">
+              <label class="text-[14px] font-black text-gray-500 uppercase tracking-tighter">指定ASN下载</label>
+              <input class="w-full bg-gray-100 dark:bg-black/40 dark:text-white border-2 border-transparent focus:border-orange-500/50 rounded-xl px-4 py-2 text-sm font-bold outline-none transition-all" name="asn" placeholder="例如: 13335" type="text">
+            </div>
+            <div class="p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10 space-y-2">
+              <label class="text-[14px] font-black text-blue-500 uppercase tracking-widest block">Telegram 推送 (可选)</label>
+              <div class="relative flex items-center">
+                <input class="w-full bg-white dark:bg-gray-800 dark:text-white rounded-xl px-3 py-2 text-xs outline-none border border-gray-200 dark:border-gray-800 focus:border-blue-500 pr-eye-offset secret-input" name="telegram_token" id="tgToken_v4" placeholder="机器人 Token" type="text" autocomplete="new-password" data-lpignore="true" data-1p-ignore>
+                <button type="button" onclick="window.toggleTG('tgToken_v4', this)" class="tg-eye-btn absolute right-0 h-full px-3 flex items-center justify-center cursor-pointer border-none"><i data-lucide="eye" class="w-4 h-4 pointer-events-none"></i></button>
+              </div>
+              <div class="relative flex items-center">
+                <input class="w-full bg-white dark:bg-gray-800 dark:text-white rounded-xl px-3 py-2 text-xs outline-none border border-gray-200 dark:border-gray-800 focus:border-blue-500 pr-eye-offset secret-input" name="telegram_chat_id" id="tgChatID_v4" placeholder="聊天 ID" type="text" autocomplete="new-password" data-lpignore="true" data-1p-ignore>
+                <button type="button" onclick="window.toggleTG('tgChatID_v4', this)" class="tg-eye-btn absolute right-0 h-full px-3 flex items-center justify-center cursor-pointer border-none"><i data-lucide="eye" class="w-4 h-4 pointer-events-none"></i></button>
+              </div>
+            </div>
+            <div class="flex space-x-2">
+              <div class="w-1/2 tls-container bg-orange-500/5 rounded-2xl border border-orange-500/10 p-3 hover:bg-orange-500/10 transition-all cursor-pointer">
+                <input type="checkbox" id="tls_check" checked>
+                <span class="text-sm font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest select-none">启用 TLS</span>
+              </div>
+              <div class="w-1/2 terminal-log-container bg-orange-500/5 rounded-2xl border border-orange-500/10 p-3 hover:bg-orange-500/10 transition-all cursor-pointer">
+                <input type="checkbox" id="terminal_log_check">
+                <span class="text-sm font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest select-none">终端日志</span>
+              </div>
+            </div>
+            <div class="space-y-1">
+              <label class="text-[14px] font-black text-gray-500 uppercase tracking-tighter">预设代理</label>
+              <input class="w-full bg-gray-100 dark:bg-black/40 dark:text-white border-2 border-transparent focus:border-orange-500/50 rounded-xl px-4 py-2 text-xs font-bold font-mono outline-none" name="preset_proxy" placeholder="socks5://127.0.0.1:1080" type="text">
+            </div>
+          </form>
+        </div>
+      </aside>
+
+      <div class="lg:col-span-8 flex flex-col space-y-6 h-full min-h-0">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 flex-shrink-0">
+          <div class="bg-white/60 dark:bg-gray-900/60 p-6 rounded-3xl border dark:border-gray-800 text-center">
+            <p>任务状态</p> <p id="status" class="text-sm font-black text-green-500 mt-2 uppercase">等待连接...</p>
+          </div>
+          <div class="bg-white/60 dark:bg-gray-900/60 p-6 rounded-3xl border dark:border-gray-800 text-center">
+            <p>已发现 IP</p> <p id="validCount" class="text-2xl font-black text-green-500 mt-2">0</p>
+          </div>
+          <div class="bg-white/60 dark:bg-gray-900/60 p-6 rounded-3xl border dark:border-gray-800 text-center">
+            <p>实时进度</p> <p id="progress" class="text-sm font-black text-blue-500 mt-2">--</p>
+          </div>
+          <div class="bg-white/60 dark:bg-gray-900/60 p-6 rounded-3xl border dark:border-gray-800 text-center">
+            <p>剩余耗时</p> <p id="eta" class="text-sm font-black text-purple-500 mt-2">--</p>
+          </div>
+        </div>
+        <div class="flex-1 min-h-0 bg-black/95 rounded-xl border border-white/5 overflow-hidden flex flex-col shadow-2xl relative">
+          <div class="px-1 py-0 border-b border-white/5 flex justify-between items-center bg-zinc-900/50 flex-shrink-0">
+            <span class="text-[13px] font-black text-zinc-400 uppercase tracking-tight flex items-center gap-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="terminal" class="lucide lucide-terminal w-4 h-4 text-orange-500"><path d="M12 19h8"></path><path d="m4 17 6-6-6-6"></path></svg>
+              控制台实时日志
+            </span>
+            <button class="p-1 hover:text-red-500 transition-colors" onclick="document.getElementById('logOutput').innerHTML=''">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4 text-zinc-600"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+          <div id="progressLogContainer" class="px-1 pt-0 font-jetbrains text-[13px] leading-none text-blue-300 empty:hidden"></div>
+          <div class="flex-1 px-1 pb-1 pt-0 overflow-y-auto font-jetbrains text-[13px] leading-tight text-zinc-400 selection:bg-orange-500/30" id="logOutput"></div>
+        </div>
+        <div class="space-y-4 flex-shrink-0">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="actionButtons">
+            <button class="btn-action p-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-all" onclick="startTask('test')">IP 测速</button>
+            <button class="btn-action p-6 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-all" onclick="startTask('cidr')">CIDR 扫描</button>
+            <button class="btn-action p-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-all" onclick="startTask('asn')">ASN 下载</button>
+            <button class="btn-action p-6 bg-orange-600 hover:bg-orange-700 text-white rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-all" onclick="startTask('update')">更新数据</button>
+          </div>
+          <button class="w-full p-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black shadow-xl animate-pulse hidden" id="btn-stop" onclick="stopCurrentTask()">停止当前进程</button>
+          <div class="hidden p-4 bg-green-500/10 border-2 border-green-500/30 rounded-2xl flex items-center justify-between animate-bounce-subtle" id="dlArea">
+            <div class="flex items-center gap-3">
+              <div class="p-2 bg-sky-600 rounded-full shadow-lg shadow-sky-500/20">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" class="lucide lucide-check w-4 h-4 text-white"><path d="M20 6 9 17l-5-5"></path></svg>
+              </div>
+              <span class="text-sky-500 font-black text-base uppercase tracking-widest">优选任务已圆满完成</span>
+            </div>
+            <div class="flex gap-2"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="fixed inset-0 bg-black/80 backdrop-blur-xl z-[100] hidden items-center justify-center p-6" id="modalOverlay">
+    <div class="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-md shadow-2xl relative transition-transform scale-95" id="modalBox">
+      <button class="absolute top-8 right-8 text-gray-400 hover:text-red-500 transition-colors" onclick="closeModal()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="x" class="lucide lucide-x w-8 h-8"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+      <div class="hidden space-y-8" id="bgSettingsContent">
+        <h3 class="font-black text-2xl flex items-center gap-3 text-gray-900 dark:text-white">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="palette" class="lucide lucide-palette text-orange-500"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"></path><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle></svg>
+          背景视觉
+        </h3>
+        <div class="space-y-4">
+          <div class="space-y-1">
+            <label class="text-xs font-bold text-gray-400">本地图片/视频</label>
+            <input accept="image/*,video/*" class="w-full text-xs dark:text-gray-300" id="bgFileInput" type="file">
+          </div>
+          <div class="space-y-1">
+            <label class="text-xs font-bold text-gray-400">网络链接 (URL)</label>
+            <input class="w-full p-4 bg-gray-100 dark:bg-black rounded-2xl outline-none font-bold border dark:border-gray-800 text-gray-900 dark:text-white" id="bgUrlInput" placeholder="输入图片或视频 URL..." type="text">
+          </div>
+        </div>
+        <div class="space-y-6">
+          <div class="space-y-2">
+            <div class="flex justify-between font-black text-xs uppercase text-gray-500 dark:text-gray-400"><span>高斯模糊</span><span id="blurVal">10px</span></div>
+            <input class="w-full accent-orange-500" id="blurSlider" max="30" min="0" oninput="updatePreviewValues()" type="range" value="10">
+          </div>
+          <div class="space-y-2">
+            <div class="flex justify-between font-black text-xs uppercase text-gray-500 dark:text-gray-400"><span>遮罩深度</span><span id="overlayVal">40%</span></div>
+            <input class="w-full accent-orange-500" id="overlaySlider" max="95" min="0" oninput="updatePreviewValues()" type="range" value="40">
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <button class="flex-1 py-4 px-6 bg-gray-200 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-2xl font-black text-sm hover:bg-red-500 hover:text-white transition-all shadow-md" onclick="resetDefaultBg()">恢复默认</button>
+          <button class="flex-1 py-4 px-6 bg-orange-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-orange-500/20 hover:bg-orange-700 active:scale-95 transition-all" onclick="applyBgSettings()">保存并应用</button>
+        </div>
+      </div>
+      <div class="hidden space-y-8" id="fontSettingsContent">
+        <h3 class="font-black text-2xl flex items-center gap-3 text-gray-900 dark:text-white">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="type" class="lucide lucide-type text-blue-500"><path d="M12 4v16"></path><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"></path><path d="M9 20h6"></path></svg>
+          字体定制
+        </h3>
+        <div class="grid gap-3">
+          <label class="p-4 bg-gray-100 dark:bg-black rounded-2xl border-2 border-transparent has-[:checked]:border-blue-500 has-[:checked]:shadow-md has-[:checked]:shadow-blue-500/20 cursor-pointer transition-all flex items-center justify-center">
+            <input checked="" class="hidden" name="fontFamily" type="radio" value="default">
+            <span class="font-bold text-gray-700 dark:text-white text-center">Noto Sans SC<br><span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(系统默认)</span></span>
+          </label>
+          <label class="p-4 bg-gray-100 dark:bg-black rounded-2xl border-2 border-transparent has-[:checked]:border-blue-500 has-[:checked]:shadow-md has-[:checked]:shadow-blue-500/20 cursor-pointer transition-all flex items-center justify-center">
+            <input class="hidden" name="fontFamily" type="radio" value="jetbrains">
+            <span class="font-jetbrains font-bold text-gray-700 dark:text-white text-center">JetBrains Mono<br><span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(开发者)</span></span>
+          </label>
+        </div>
+        <div class="flex items-center justify-between p-5 bg-blue-500/5 rounded-2xl border border-blue-500/10">
+          <span class="text-xs font-black uppercase tracking-widest text-gray-900 dark:text-white">强制全局超重加粗</span>
+          <input class="w-7 h-7 rounded accent-blue-600 cursor-pointer" id="boldMode" type="checkbox">
+        </div>
+        <button class="w-full py-5 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-95 transition-all" onclick="applyFontSettings()">应用字体设置</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = s => document.querySelector(s);
+    let ws; let isTaskFinished = false;
+    let wsReconnectTimer = null;
+    let wsReconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 10;
+
+    function openModal(id) {
+      $('#modalOverlay').classList.remove('hidden'); $('#modalOverlay').classList.add('flex');
+      $('#bgSettingsContent').classList.toggle('hidden', id !== 'bgSettings');
+      $('#fontSettingsContent').classList.toggle('hidden', id !== 'fontSettings');
+      setTimeout(() => $('#modalBox').classList.replace('scale-95', 'scale-100'), 10);
+    }
+    function closeModal() {
+      $('#modalBox').classList.replace('scale-100', 'scale-95');
+      setTimeout(() => { $('#modalOverlay').classList.add('hidden'); $('#modalOverlay').classList.remove('flex'); }, 200);
+    }
+
+    function setButtonsState(isDisabled) {
+      document.querySelectorAll('.btn-action').forEach(b => { if (isDisabled) b.classList.add('btn-disabled'); else b.classList.remove('btn-disabled'); });
+    }
+
+    let progressLogContainer = null, lastProgressLog = null;
+    
+    function initWS() {
+      if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+      }
+      
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        console.log("WebSocket 已连接，跳过初始化");
+        return;
+      }
+      
+      const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws'}://${location.host}/ws`;
+      console.log("正在连接 WebSocket:", wsUrl);
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        console.log("WebSocket 连接成功");
+        wsReconnectAttempts = 0;
+        $('#status').textContent = "已连接";
+      };
+      
+      ws.onmessage = e => {
+        try {
+          const data = JSON.parse(e.data);
+          const logContainer = $('#logOutput');
+          
+          if (data.type === 'eta') {
+            if ($('#eta')) $('#eta').textContent = data.value || '--';
+            return;
+          }
+          
+          if (data.type === 'progress') {
+            if ($('#progress')) $('#progress').textContent = data.value ? data.value + '%' : '--';
+            return;
+          }
+          
+          if (data.type === 'log' || data.type === 'progress_log') {
+            const rawMsg = data.message || '';
+            const cleanLine = rawMsg.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '').trim();
+            if (!cleanLine) return;
+            
+            const isProgressLine = /扫描CIDR|预计剩余耗时|\d+\.?\d*%/.test(cleanLine);
+            const hasIpInfo = cleanLine.includes('发现有效IP') || cleanLine.includes('测试结果');
+            
+            if (isProgressLine && !hasIpInfo) {
+              if (lastProgressLog) {
+                lastProgressLog.innerHTML = `<span class="opacity-20 mr-2 text-[9px] italic">${new Date().toLocaleTimeString([], { hour12: false })}</span><span>${cleanLine}</span>`;
+              }
+              return;
+            }
+            
+            if (hasIpInfo) lastProgressLog = null;
+            
+            const logLines = cleanLine.split('\n');
+            logLines.forEach(line => {
+              const finalLine = line.trim();
+              if (!finalLine) return;
+              if (/扫描CIDR|预计剩余耗时/.test(finalLine) && !finalLine.includes('发现有效IP')) return;
+              const div = document.createElement('div');
+              div.className = finalLine.includes('发现有效IP') ? 'p-1.5 mb-1 rounded text-emerald-400 font-black border border-emerald-500/30 bg-emerald-500/10 shadow-sm' : 'p-1 mb-0.5 text-gray-300 text-sm font-mono';
+              const timeStr = new Date().toLocaleTimeString([], { hour12: false });
+              div.innerHTML = `<span class="opacity-20 mr-2 text-[9px] italic">${timeStr}</span><span>${finalLine}</span>`;
+              if (logContainer) {
+                logContainer.appendChild(div);
+                logContainer.scrollTop = logContainer.scrollHeight;
+                if (logContainer.children.length > 300) logContainer.removeChild(logContainer.firstChild);
+              }
+            });
+          } else if (data.type === 'found' || data.type === 'valid') {
+            if (data.count !== undefined && $('#validCount')) $('#validCount').textContent = data.count;
+          } else if (data.type === 'status') {
+            const statusMsg = data.message;
+            if ($('#status')) $('#status').textContent = statusMsg;
+            const isRunning = !["空闲", "已连接", "idle", "任务已完成", "已手动停止", "已强制停止", "启动失败"].includes(statusMsg);
+            const stopBtn = $('#btn-stop');
+            if (stopBtn) {
+              if (isRunning) stopBtn.classList.remove('hidden');
+              else stopBtn.classList.add('hidden');
+            }
+            setButtonsState(isRunning);
+          } else if (data.type === 'done') {
+            if (window.isTaskFinished) return;
+            window.isTaskFinished = true;
+            if ($('#status')) $('#status').textContent = "任务已完成";
+            if ($('#eta')) $('#eta').textContent = "DONE";
+            if ($('#btn-stop')) $('#btn-stop').classList.add('hidden');
+            setButtonsState(false);
+            if (lastProgressLog && lastProgressLog.parentNode) {
+              lastProgressLog.parentNode.removeChild(lastProgressLog);
+              lastProgressLog = null;
+            }
+          }
+        } catch (err) {
+          console.error("处理 WebSocket 消息出错:", err, e.data);
+        }
+      };
+      
+      ws.onclose = (event) => {
+        console.log(`WebSocket 关闭 (code: ${event.code})`);
+        $('#status').innerHTML = '<span class="text-red-500 animate-pulse">服务连接断开</span>';
+        setButtonsState(false);
+        
+        if (wsReconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          wsReconnectAttempts++;
+          const delay = Math.min(1000 * wsReconnectAttempts, 5000);
+          console.log(`将在 ${delay}ms 后尝试第 ${wsReconnectAttempts} 次重连...`);
+          wsReconnectTimer = setTimeout(initWS, delay);
+        } else {
+          $('#status').innerHTML = '<span class="text-red-500">连接失败，请刷新页面</span>';
+        }
+      };
+      
+      ws.onerror = err => {
+        console.error("WebSocket 错误:", err);
+      };
+    }
+
+    function startTask(actionType) {
+      const fieldsToSave = ['file', 'outfile', 'max', 'speedtest', 'speedlimit', 'url', 'cidrfile', 'rate', 'cidr-ports', 'asn', 'preset_proxy', 'telegram_token', 'telegram_chat_id'];
+      fieldsToSave.forEach(name => { const input = $(`[name="${name}"]`); if (input) localStorage.setItem('config_' + name, input.value); });
+      
+      isTaskFinished = false;
+      const formData = new FormData($('#configForm'));
+      const params = new URLSearchParams();
+      params.set('type', actionType);
+      
+      ['max', 'outfile', 'speedtest', 'speedlimit', 'url'].forEach(key => {
+        const val = formData.get(key);
+        if (val) params.set(key, val);
+      });
+      
+      params.set('tls', $('#tls_check').checked ? 'true' : 'false');
+      params.set('terminalLog', $('#terminal_log_check')?.checked ? 'true' : 'false');
+      
+      const tgToken = formData.get('telegram_token')?.trim();
+      const tgChatID = formData.get('telegram_chat_id')?.trim();
+      const proxy = formData.get('preset_proxy')?.trim();
+      
+      if (tgToken) params.set('tgToken', tgToken);
+      if (tgChatID) params.set('tgChatID', tgChatID);
+      if (proxy) params.set('proxy', proxy);
+      
+      if (actionType === 'cidr') {
+        let ports = formData.get('cidr-ports')?.trim() || "443";
+        params.set('cidr-ports', ports);
+        params.set('cidrfile', formData.get('cidrfile') || 'cidr.txt');
+        params.set('rate', formData.get('rate') || '10000');
+        params.set('cidr-speedtest', $('#expand_cidr_check')?.checked ? 'true' : 'false');
+        params.set('file', "");
+      } else if (actionType === 'test') {
+        params.set('file', formData.get('file') || 'ip.txt');
+        params.set('cidr-ports', "");
+        params.set('cidrfile', "");
+        params.set('cidr-speedtest', 'false');
+      } else if (actionType === 'asn' || actionType === 'update') {
+        const asn = formData.get('asn')?.trim();
+        if (actionType === 'asn' && !asn) {
+          alert("请输入ASN编号");
+          setButtonsState(false);
+          return;
+        }
+        params.set('asn', asn || '');
+        params.set('cidr-ports', formData.get('cidr-ports')?.trim() || "");
+        params.set('cidrfile', formData.get('cidrfile') || 'cidr.txt');
+        params.set('rate', formData.get('rate') || '10000');
+        params.set('cidr-speedtest', $('#expand_cidr_check')?.checked ? 'true' : 'false');
+        params.set('file', "");
+      }
+      
+      $('#status').textContent = "正在启动...";
+      $('#validCount').textContent = "0";
+      $('#progress').textContent = "--";
+      $('#eta').textContent = "--";
+      if (progressLogContainer) progressLogContainer.innerHTML = '';
+      lastProgressLog = null;
+      
+      $('#logOutput').innerHTML = `<div class="flex items-center gap-2 text-blue-500 font-black p-3 bg-blue-500/5 border-l-4 border-blue-500 rounded animate-pulse"><i data-lucide="loader-2" class="animate-spin w-5 h-5"></i><span>正在启动任务...</span></div>`;
+      if (window.lucide) lucide.createIcons();
+      
+      if (window.innerWidth <= 1024) {
+        const logBox = $('#logOutput');
+        logBox.style.height = '380px !important';
+        logBox.style.display = 'block !important';
+        logBox.style.overflowY = 'auto';
+      }
+      
+      setButtonsState(true);
+      
+      fetch('/start?' + params.toString())
+        .then(response => response.json())
+        .then(data => { if (data && data.error) { alert("错误: " + data.error); setButtonsState(false); } })
+        .catch(err => { console.error("Fetch Error:", err); setButtonsState(false); });
+    }
+    
+    async function stopCurrentTask() {
+      if (!confirm('确定要中断当前测速进程吗？')) return;
+      const res = await fetch('/stop');
+      const data = await res.json();
+      if (data.status === 'stopped') {
+        $('#status').textContent = "已手动停止";
+        setButtonsState(false);
+      }
+    }
+
+    $('#bgFileInput').onchange = e => { const file = e.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = ev => setBackgroundSource(ev.target.result); reader.readAsDataURL(file); };
+    function setBackgroundSource(url) { const isVideo = url.match(/\.(mp4|webm|ogg)$/i) || url.startsWith('data:video'); if (isVideo) { $('#videoBg').src = url; $('#videoBg').classList.remove('hidden'); $('#customBg').style.backgroundImage = 'none'; } else { $('#videoBg').classList.add('hidden'); $('#videoBg').src = ''; $('#customBg').style.backgroundImage = `url('${url}')`; } }
+    function applyBgSettings(close = true) { const url = $('#bgUrlInput').value; if (url) { setBackgroundSource(url); localStorage.setItem('appBgUrl', url); } const b = $('#blurSlider').value, o = $('#overlaySlider').value; $('#customBg').style.filter = `blur(${b}px)`; $('#videoBg').style.filter = `blur(${b}px)`; const isDark = document.documentElement.classList.contains('dark'); $('#bgOverlay').style.backgroundColor = isDark ? `rgba(0,0,0,${o / 100})` : `rgba(255,255,255,${(100 - o) / 200})`; localStorage.setItem('appBgBlur', b); localStorage.setItem('appBgOverlay', o); if (close) closeModal(); }
+    function resetDefaultBg() { $('#blurSlider').value = 10; $('#overlaySlider').value = 40; updatePreviewValues(); applyBgSettings(false); }
+    function applyFontSettings() { const font = document.querySelector('input[name="fontFamily"]:checked').value; const isBold = $('#boldMode').checked; document.body.classList.remove('font-default', 'font-jetbrains'); document.body.classList.add(font === 'jetbrains' ? 'font-jetbrains' : 'font-default'); document.body.classList.toggle('force-bold', isBold); localStorage.setItem('appFont', font); localStorage.setItem('appBold', isBold); closeModal(); }
+    function toggleTheme() { const html = document.documentElement; const isDark = html.classList.contains('dark'); if (isDark) { html.classList.remove('dark'); html.setAttribute('data-theme', 'light'); localStorage.setItem('theme', 'light'); } else { html.classList.add('dark'); html.setAttribute('data-theme', 'dark'); localStorage.setItem('theme', 'dark'); } updateThemeIcon(); applyBgSettings(false); }
+    function updateThemeIcon() { const isDark = document.documentElement.classList.contains('dark'); $('#themeIcon').setAttribute('data-lucide', isDark ? 'moon' : 'sun'); lucide.createIcons(); }
+    function updatePreviewValues() { $('#blurVal').textContent = $('#blurSlider').value + 'px'; $('#overlayVal').textContent = $('#overlaySlider').value + '%'; }
+    
+    window.toggleTG = function (id, btn) { 
+      const input = document.getElementById(id); 
+      if (!input) return; 
+      const isRevealed = input.classList.contains('revealed');
+      if (isRevealed) { input.classList.remove('revealed'); } else { input.classList.add('revealed'); }
+      const icon = btn.querySelector('i'); 
+      if (icon && window.lucide) { icon.setAttribute('data-lucide', isRevealed ? 'eye' : 'eye-off'); lucide.createIcons(); } 
+    };
+
+    window.onload = () => {
+      if (window.lucide) lucide.createIcons();
+      
+      const fieldsToRestore = ['file', 'outfile', 'max', 'speedtest', 'speedlimit', 'url', 'cidrfile', 'rate', 'cidr-ports', 'asn', 'preset_proxy', 'telegram_token', 'telegram_chat_id'];
+      fieldsToRestore.forEach(name => { const savedVal = localStorage.getItem('config_' + name); if (savedVal !== null) { const el = document.querySelector(`[name="${name}"]`); if (el) el.value = savedVal; } });
+      
+      initWS();
+      
+      const theme = localStorage.getItem('theme') || 'dark'; 
+      if (theme === 'dark') document.documentElement.classList.add('dark'); 
+      else { document.documentElement.classList.remove('dark'); document.documentElement.setAttribute('data-theme', 'light'); } 
+      updateThemeIcon();
+      
+      const savedBg = localStorage.getItem('appBgUrl'); 
+      if (savedBg) { setBackgroundSource(savedBg); if ($('#bgUrlInput')) $('#bgUrlInput').value = savedBg; }
+      
+      const blur = localStorage.getItem('appBgBlur') || 10, overlay = localStorage.getItem('appBgOverlay') || 40; 
+      if ($('#blurSlider')) $('#blurSlider').value = blur; 
+      if ($('#overlaySlider')) $('#overlaySlider').value = overlay; 
+      updatePreviewValues(); applyBgSettings(false);
+      
+      const savedFont = localStorage.getItem('appFont') || 'default', savedBold = localStorage.getItem('appBold') === 'true'; 
+      const radio = document.querySelector(`input[name="fontFamily"][value="${savedFont}"]`); 
+      if (radio) radio.checked = true; 
+      if ($('#boldMode')) $('#boldMode').checked = savedBold; 
+      if (savedFont === 'jetbrains') document.body.classList.add('font-jetbrains'); 
+      if (savedBold) document.body.classList.add('force-bold');
+      
+      setTimeout(() => {
+        const tgToken = $('#tgToken_v4'), tgChatId = $('#tgChatID_v4');
+        if (!localStorage.getItem('config_telegram_token') && tgToken) tgToken.value = '';
+        if (!localStorage.getItem('config_telegram_chat_id') && tgChatId) tgChatId.value = '';
+      }, 100);
+      
+      console.log("Cloudflare Tester Pro: 初始化完成 (无认证模式，带自动重连)");
+    };
+  </script>
+</body>
+</html>
